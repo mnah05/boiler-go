@@ -1,0 +1,12 @@
+{"level":"info","time":"2026-02-13T17:03:44+05:30","message":"database connected"}
+{"level":"info","time":"2026-02-13T17:03:44+05:30","message":"redis connected"}
+{"level":"info","time":"2026-02-13T17:03:44+05:30","message":"scheduler client initialized"}
+{"level":"info","port":"8080","time":"2026-02-13T17:03:44+05:30","message":"server starting"}
+{"level":"info","request_id":"MDs-MacBook-Air.local/IkGhDxy4qm-000001","method":"GET","path":"/health","time":"2026-02-13T17:04:03+05:30","message":"health check task enqueued"}
+{"level":"info","request_id":"MDs-MacBook-Air.local/IkGhDxy4qm-000001","method":"GET","path":"/health","duration":24.448833,"time":"2026-02-13T17:04:04+05:30","message":"request completed"}
+{"level":"info","request_id":"MDs-MacBook-Air.local/IkGhDxy4qm-000002","method":"GET","path":"/health","time":"2026-02-13T17:04:25+05:30","message":"health check task enqueued"}
+{"level":"info","request_id":"MDs-MacBook-Air.local/IkGhDxy4qm-000002","method":"GET","path":"/health","duration":3.273541,"time":"2026-02-13T17:04:25+05:30","message":"request completed"}
+{"level":"info","request_id":"MDs-MacBook-Air.local/IkGhDxy4qm-000003","method":"GET","path":"/health","time":"2026-02-13T17:04:32+05:30","message":"health check task enqueued"}
+{"level":"info","request_id":"MDs-MacBook-Air.local/IkGhDxy4qm-000003","method":"GET","path":"/health","duration":3.480708,"time":"2026-02-13T17:04:32+05:30","message":"request completed"}
+{"level":"info","request_id":"MDs-MacBook-Air.local/IkGhDxy4qm-000004","method":"GET","path":"/health","time":"2026-02-13T17:04:46+05:30","message":"health check task enqueued"}
+{"level":"info","request_id":"MDs-MacBook-Air.local/IkGhDxy4qm-000004","method":"GET","path":"/health","duration":4.88175,"time":"2026-02-13T17:04:46+05:30","message":"request completed"}

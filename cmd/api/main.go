@@ -10,18 +10,17 @@ import (
 
 	"boiler-go/internal/config"
 	"boiler-go/internal/handler"
+	"boiler-go/internal/scheduler"
 	"boiler-go/pkg/logger"
 
+	"github.com/hibiken/asynq"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
 func main() {
-
 	cfg := config.Load()
-
 	logg := logger.New()
-
 	ctx := context.Background()
 
 	// Parse config from connection string
@@ -44,7 +43,6 @@ func main() {
 	if err := dbpool.Ping(ctx); err != nil {
 		logg.Fatal().Err(err).Msg("database connection failed")
 	}
-
 	logg.Info().Msg("database connected")
 
 	rdb := redis.NewClient(&redis.Options{
@@ -56,10 +54,17 @@ func main() {
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		logg.Fatal().Err(err).Msg("redis connection failed")
 	}
-
 	logg.Info().Msg("redis connected")
 
-	router := handler.NewRouter(logg, cfg, dbpool, rdb)
+	// Initialize scheduler client for task enqueueing
+	schedulerClient := scheduler.NewClient(asynq.RedisClientOpt{
+		Addr:     cfg.RedisAddr,
+		Password: cfg.RedisPassword,
+		DB:       cfg.RedisDB,
+	})
+	logg.Info().Msg("scheduler client initialized")
+
+	router := handler.NewRouter(logg, cfg, dbpool, rdb, schedulerClient)
 
 	server := &http.Server{
 		Addr:         ":" + cfg.AppPort,
@@ -73,7 +78,6 @@ func main() {
 		logg.Info().
 			Str("port", cfg.AppPort).
 			Msg("server starting")
-
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logg.Fatal().Err(err).Msg("server failed to start")
 		}
@@ -81,7 +85,6 @@ func main() {
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-
 	<-stop
 
 	logg.Info().Msg("shutting down server...")
@@ -98,6 +101,9 @@ func main() {
 	dbpool.Close()
 	if err := rdb.Close(); err != nil {
 		logg.Error().Err(err).Msg("redis close failed")
+	}
+	if err := schedulerClient.Close(); err != nil {
+		logg.Error().Err(err).Msg("scheduler client close failed")
 	}
 
 	logg.Info().Msg("server stopped cleanly")
