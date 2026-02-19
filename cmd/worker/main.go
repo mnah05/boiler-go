@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"boiler-go/internal/config"
+	"boiler-go/internal/db"
 	"boiler-go/pkg/logger"
 
 	"github.com/hibiken/asynq"
@@ -20,6 +21,12 @@ const TypeHealthCheck = "system:health_check"
 func main() {
 	cfg := config.Load()
 	logg := logger.New()
+
+	// Initialize database pool
+	if err := db.Open(cfg); err != nil {
+		logg.Fatal().Err(err).Msg("failed to initialize database")
+	}
+	logg.Info().Msg("database connected")
 
 	redisOpt := asynq.RedisClientOpt{
 		Addr:     cfg.RedisAddr,
@@ -46,10 +53,14 @@ func main() {
 			},
 
 			ErrorHandler: asynq.ErrorHandlerFunc(func(ctx context.Context, task *asynq.Task, err error) {
+				taskID := "unknown"
+				if rw := task.ResultWriter(); rw != nil {
+					taskID = rw.TaskID()
+				}
 				logg.Error().
 					Err(err).
 					Str("task_type", task.Type()).
-					Str("task_id", task.ResultWriter().TaskID()).
+					Str("task_id", taskID).
 					Msg("task processing failed")
 			}),
 		},
@@ -88,6 +99,9 @@ func main() {
 	// Shutdown will wait for in-flight tasks to complete or until timeout
 	srv.Shutdown()
 
+	// Close database connection
+	db.Close()
+
 	// Wait for context to ensure clean shutdown
 	<-shutdownCtx.Done()
 
@@ -100,9 +114,14 @@ func loggingMiddleware(logg zerolog.Logger) asynq.MiddlewareFunc {
 		return asynq.HandlerFunc(func(ctx context.Context, task *asynq.Task) error {
 			start := time.Now()
 
+			taskID := "unknown"
+			if rw := task.ResultWriter(); rw != nil {
+				taskID = rw.TaskID()
+			}
+
 			logg.Info().
 				Str("task_type", task.Type()).
-				Str("task_id", task.ResultWriter().TaskID()).
+				Str("task_id", taskID).
 				Msg("task started")
 
 			err := next.ProcessTask(ctx, task)
@@ -112,13 +131,13 @@ func loggingMiddleware(logg zerolog.Logger) asynq.MiddlewareFunc {
 				logg.Error().
 					Err(err).
 					Str("task_type", task.Type()).
-					Str("task_id", task.ResultWriter().TaskID()).
+					Str("task_id", taskID).
 					Dur("duration", duration).
 					Msg("task failed")
 			} else {
 				logg.Info().
 					Str("task_type", task.Type()).
-					Str("task_id", task.ResultWriter().TaskID()).
+					Str("task_id", taskID).
 					Dur("duration", duration).
 					Msg("task completed")
 			}
