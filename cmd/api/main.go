@@ -9,12 +9,12 @@ import (
 	"time"
 
 	"boiler-go/internal/config"
+	"boiler-go/internal/db"
 	"boiler-go/internal/handler"
 	"boiler-go/internal/scheduler"
 	"boiler-go/pkg/logger"
 
 	"github.com/hibiken/asynq"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -23,25 +23,9 @@ func main() {
 	logg := logger.New()
 	ctx := context.Background()
 
-	// Parse config from connection string
-	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
-	if err != nil {
-		logg.Fatal().Err(err).Msg("failed to parse database config")
-	}
-
-	// Modify the config
-	poolConfig.MaxConns = 10
-	poolConfig.MinConns = 2
-	poolConfig.MaxConnLifetime = time.Hour
-	poolConfig.MaxConnIdleTime = 30 * time.Minute
-
-	dbpool, err := pgxpool.NewWithConfig(ctx, poolConfig)
-	if err != nil {
-		logg.Fatal().Err(err).Msg("failed to create database pool")
-	}
-
-	if err := dbpool.Ping(ctx); err != nil {
-		logg.Fatal().Err(err).Msg("database connection failed")
+	// Initialize database pool
+	if err := db.Open(cfg); err != nil {
+		logg.Fatal().Err(err).Msg("failed to initialize database")
 	}
 	logg.Info().Msg("database connected")
 
@@ -64,7 +48,7 @@ func main() {
 	})
 	logg.Info().Msg("scheduler client initialized")
 
-	router := handler.NewRouter(logg, cfg, dbpool, rdb, schedulerClient)
+	router := handler.NewRouter(logg, cfg, db.Get(), rdb, schedulerClient)
 
 	server := &http.Server{
 		Addr:         ":" + cfg.AppPort,
@@ -98,7 +82,7 @@ func main() {
 	}
 
 	// close resources
-	dbpool.Close()
+	db.Close()
 	if err := rdb.Close(); err != nil {
 		logg.Error().Err(err).Msg("redis close failed")
 	}
