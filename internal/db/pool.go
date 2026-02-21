@@ -4,14 +4,25 @@ import (
 	"boiler-go/internal/config"
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-var pool *pgxpool.Pool
+var (
+	pool *pgxpool.Pool
+	mu   sync.RWMutex
+)
 
 func Open(cfg *config.Config) error {
+	mu.Lock()
+	defer mu.Unlock()
+
+	if pool != nil {
+		return fmt.Errorf("database pool already initialized")
+	}
+
 	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
 	if err != nil {
 		return fmt.Errorf("failed to parse database config: %w", err)
@@ -22,20 +33,30 @@ func Open(cfg *config.Config) error {
 	poolConfig.MaxConnIdleTime = 5 * time.Minute
 	poolConfig.HealthCheckPeriod = 1 * time.Minute
 
-	if pool, err = pgxpool.NewWithConfig(context.Background(), poolConfig); err != nil {
+	newPool, err := pgxpool.NewWithConfig(context.Background(), poolConfig)
+	if err != nil {
 		return fmt.Errorf("failed to create pool: %w", err)
 	}
-	if err := pool.Ping(context.Background()); err != nil {
+
+	if err := newPool.Ping(context.Background()); err != nil {
+		newPool.Close() // Clean up the pool on ping failure
 		return fmt.Errorf("database unreachable: %w", err)
 	}
+
+	pool = newPool
 	return nil
 }
 
 func Get() *pgxpool.Pool {
+	mu.RLock()
+	defer mu.RUnlock()
 	return pool
 }
 
 func Close() {
+	mu.Lock()
+	defer mu.Unlock()
+
 	if pool != nil {
 		pool.Close()
 		pool = nil

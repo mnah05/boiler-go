@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -58,22 +59,30 @@ func main() {
 		IdleTimeout:  60 * time.Second,
 	}
 
+	serverErrors := make(chan error, 1)
+
 	go func() {
 		logg.Info().
 			Str("port", cfg.AppPort).
 			Msg("server starting")
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logg.Fatal().Err(err).Msg("server failed to start")
+			serverErrors <- fmt.Errorf("server failed to start: %w", err)
 		}
 	}()
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-	<-stop
+
+	select {
+	case err := <-serverErrors:
+		logg.Fatal().Err(err).Msg("server startup failed")
+	case sig := <-stop:
+		logg.Info().Str("signal", sig.String()).Msg("shutdown signal received")
+	}
 
 	logg.Info().Msg("shutting down server...")
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.APIShutdownTimeout)
 	defer cancel()
 
 	// graceful HTTP shutdown
@@ -81,14 +90,14 @@ func main() {
 		logg.Error().Err(err).Msg("server shutdown failed")
 	}
 
-	// close resources
-	db.Close()
-	if err := rdb.Close(); err != nil {
-		logg.Error().Err(err).Msg("redis close failed")
-	}
+	// close resources in reverse order of initialization
 	if err := schedulerClient.Close(); err != nil {
 		logg.Error().Err(err).Msg("scheduler client close failed")
 	}
+	if err := rdb.Close(); err != nil {
+		logg.Error().Err(err).Msg("redis close failed")
+	}
+	db.Close()
 
 	logg.Info().Msg("server stopped cleanly")
 }

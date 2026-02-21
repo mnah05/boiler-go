@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -18,18 +19,20 @@ type HealthHandler struct {
 	db        *pgxpool.Pool
 	redis     *redis.Client
 	scheduler *scheduler.Client
+	timeout   time.Duration
 }
 
-func NewHealthHandler(db *pgxpool.Pool, redis *redis.Client, scheduler *scheduler.Client) *HealthHandler {
+func NewHealthHandler(db *pgxpool.Pool, redis *redis.Client, scheduler *scheduler.Client, timeout time.Duration) *HealthHandler {
 	return &HealthHandler{
 		db:        db,
 		redis:     redis,
 		scheduler: scheduler,
+		timeout:   timeout,
 	}
 }
 
 func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), h.timeout)
 	defer cancel()
 
 	log := logger.FromContext(ctx)
@@ -69,5 +72,17 @@ func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(overall)
-	json.NewEncoder(w).Encode(response)
+
+	// Use a separate writer to avoid partial writes on error
+	buf := &bytes.Buffer{}
+	if err := json.NewEncoder(buf).Encode(response); err != nil {
+		log.Error().Err(err).Msg("failed to encode health check response")
+		// Can't write error response since headers already sent
+		return
+	}
+
+	// Write the buffered response
+	if _, err := w.Write(buf.Bytes()); err != nil {
+		log.Error().Err(err).Msg("failed to write health check response")
+	}
 }

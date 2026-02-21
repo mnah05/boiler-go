@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -79,31 +80,46 @@ func main() {
 		return nil
 	})
 
+	workerErrors := make(chan error, 1)
+
 	go func() {
 		logg.Info().Msg("worker starting")
 		if err := srv.Run(mux); err != nil {
-			logg.Fatal().Err(err).Msg("worker failed to start")
+			workerErrors <- fmt.Errorf("worker failed to start: %w", err)
 		}
 	}()
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-	<-stop
+
+	select {
+	case err := <-workerErrors:
+		logg.Fatal().Err(err).Msg("worker startup failed")
+	case sig := <-stop:
+		logg.Info().Str("signal", sig.String()).Msg("shutdown signal received")
+	}
 
 	logg.Info().Msg("shutting down worker...")
 
 	// Graceful shutdown with timeout
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.WorkerShutdownTimeout)
 	defer cancel()
 
-	// Shutdown will wait for in-flight tasks to complete or until timeout
+	// Shutdown will wait for in-flight tasks to complete
 	srv.Shutdown()
 
 	// Close database connection
 	db.Close()
 
-	// Wait for context to ensure clean shutdown
-	<-shutdownCtx.Done()
+	// Wait for context timeout or immediate completion
+	select {
+	case <-shutdownCtx.Done():
+		if shutdownCtx.Err() == context.DeadlineExceeded {
+			logg.Warn().Msg("worker shutdown timed out")
+		}
+	default:
+		// Shutdown completed before timeout
+	}
 
 	logg.Info().Msg("worker stopped cleanly")
 }

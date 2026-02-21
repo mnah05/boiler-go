@@ -21,7 +21,7 @@ func NewRouter(log zerolog.Logger, cfg *config.Config, db *pgxpool.Pool, redis *
 	r.Use(chimiddleware.Recoverer)
 	r.Use(custommiddleware.RequestLogger(log))
 
-	health := NewHealthHandler(db, redis, scheduler)
+	health := NewHealthHandler(db, redis, scheduler, cfg.HealthCheckTimeout)
 
 	r.Get("/health", health.Check)
 
