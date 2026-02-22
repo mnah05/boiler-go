@@ -31,10 +31,12 @@ make worker
 - ✅ **Thread-Safe Database Pool** - Concurrent-safe PostgreSQL connection management
 - ✅ **Graceful Shutdown** - Proper resource cleanup and timeout handling
 - ✅ **Background Jobs** - Redis-based task processing with Asynq
-- ✅ **Health Checks** - Comprehensive service health monitoring
+- ✅ **Health Checks** - Lightweight service health monitoring (no Redis flooding)
 - ✅ **Structured Logging** - JSON logging with request tracing
 - ✅ **Environment Configuration** - Flexible config with validation
-- ✅ **Error Handling** - Robust error management and recovery
+- ✅ **CORS Support** - Configurable cross-origin resource sharing
+- ✅ **Security Hardened** - Request size limits, timeouts, and panic recovery
+- ✅ **Database Migrations** - Schema versioning with golang-migrate
 - ✅ **Docker Support** - Containerized development environment
 
 ---
@@ -68,7 +70,8 @@ boiler-go/
 │   └── scheduler/    # Job scheduling client
 ├── pkg/
 │   └── logger/      # Structured logging utilities
-├── sql/             # Database migration files
+├── migrations/      # Database migration files (golang-migrate)
+├── sql/             # SQL schema and queries for sqlc
 └── docker-compose.yml
 ```
 
@@ -172,6 +175,7 @@ The `/health` endpoint provides service status:
 ### Core Backend
 
 - **[chi](https://github.com/go-chi/chi)** - Lightweight HTTP router
+- **[chi/cors](https://github.com/go-chi/cors)** - CORS middleware
 - **[pgx/v5](https://github.com/jackc/pgx)** - PostgreSQL driver
 - **[sqlc](https://sqlc.dev/)** - Type-safe SQL code generation
 
@@ -225,7 +229,7 @@ This boilerplate includes several production-ready features:
 GET /health
 ```
 
-Returns the status of all connected services.
+Returns the status of database and Redis connections. This endpoint is safe for frequent polling by load balancers — it does not enqueue background jobs.
 
 ---
 

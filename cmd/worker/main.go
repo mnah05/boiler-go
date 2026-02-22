@@ -101,25 +101,26 @@ func main() {
 
 	logg.Info().Msg("shutting down worker...")
 
-	// Graceful shutdown with timeout
+	// Graceful shutdown with timeout enforcement
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.WorkerShutdownTimeout)
 	defer cancel()
 
-	// Shutdown will wait for in-flight tasks to complete
-	srv.Shutdown()
+	// Run srv.Shutdown() in a goroutine since it blocks until all in-flight tasks complete
+	done := make(chan struct{})
+	go func() {
+		srv.Shutdown()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		logg.Info().Msg("worker shutdown completed gracefully")
+	case <-shutdownCtx.Done():
+		logg.Warn().Msg("worker shutdown timed out, forcing exit")
+	}
 
 	// Close database connection
 	db.Close()
-
-	// Wait for context timeout or immediate completion
-	select {
-	case <-shutdownCtx.Done():
-		if shutdownCtx.Err() == context.DeadlineExceeded {
-			logg.Warn().Msg("worker shutdown timed out")
-		}
-	default:
-		// Shutdown completed before timeout
-	}
 
 	logg.Info().Msg("worker stopped cleanly")
 }

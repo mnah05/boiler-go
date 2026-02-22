@@ -1,10 +1,14 @@
-APP_NAME=app
 # ---------- run ----------
 api:
 	go run ./cmd/api
 
 worker:
 	go run ./cmd/worker
+
+# ---------- test ----------
+test:
+	go test -race ./...
+
 # ---------- database ----------
 migrate-up:
 	migrate -path ./migrations -database $$DATABASE_URL up
@@ -22,3 +26,6 @@ sqlc:
 # ---------- dev ----------
 dev:
 	docker compose up -d
+
+dev-down:
+	docker compose down

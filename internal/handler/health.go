@@ -7,27 +7,23 @@ import (
 	"net/http"
 	"time"
 
-	"boiler-go/internal/scheduler"
 	"boiler-go/pkg/logger"
 
-	"github.com/hibiken/asynq"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
 type HealthHandler struct {
-	db        *pgxpool.Pool
-	redis     *redis.Client
-	scheduler *scheduler.Client
-	timeout   time.Duration
+	db      *pgxpool.Pool
+	redis   *redis.Client
+	timeout time.Duration
 }
 
-func NewHealthHandler(db *pgxpool.Pool, redis *redis.Client, scheduler *scheduler.Client, timeout time.Duration) *HealthHandler {
+func NewHealthHandler(db *pgxpool.Pool, redis *redis.Client, timeout time.Duration) *HealthHandler {
 	return &HealthHandler{
-		db:        db,
-		redis:     redis,
-		scheduler: scheduler,
-		timeout:   timeout,
+		db:      db,
+		redis:   redis,
+		timeout: timeout,
 	}
 }
 
@@ -53,16 +49,6 @@ func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
 		log.Error().Err(err).Msg("redis health check failed")
 		status["redis"] = "down"
 		overall = http.StatusServiceUnavailable
-	}
-
-	// Enqueue a health check task to the worker
-	if err := h.scheduler.Enqueue(ctx, "system:health_check", nil,
-		asynq.Queue("default"),
-		asynq.MaxRetry(3),
-	); err != nil {
-		log.Error().Err(err).Msg("failed to enqueue health check task")
-	} else {
-		log.Info().Msg("health check task enqueued")
 	}
 
 	response := map[string]any{

@@ -12,10 +12,8 @@ import (
 	"boiler-go/internal/config"
 	"boiler-go/internal/db"
 	"boiler-go/internal/handler"
-	"boiler-go/internal/scheduler"
 	"boiler-go/pkg/logger"
 
-	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -41,22 +39,15 @@ func main() {
 	}
 	logg.Info().Msg("redis connected")
 
-	// Initialize scheduler client for task enqueueing
-	schedulerClient := scheduler.NewClient(asynq.RedisClientOpt{
-		Addr:     cfg.RedisAddr,
-		Password: cfg.RedisPassword,
-		DB:       cfg.RedisDB,
-	})
-	logg.Info().Msg("scheduler client initialized")
-
-	router := handler.NewRouter(logg, cfg, db.Get(), rdb, schedulerClient)
+	router := handler.NewRouter(logg, cfg, db.Get(), rdb)
 
 	server := &http.Server{
-		Addr:         ":" + cfg.AppPort,
-		Handler:      router,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:           ":" + cfg.AppPort,
+		Handler:        router,
+		ReadTimeout:    10 * time.Second,
+		WriteTimeout:   10 * time.Second,
+		IdleTimeout:    60 * time.Second,
+		MaxHeaderBytes: 1 << 20, // 1MB
 	}
 
 	serverErrors := make(chan error, 1)
@@ -91,9 +82,6 @@ func main() {
 	}
 
 	// close resources in reverse order of initialization
-	if err := schedulerClient.Close(); err != nil {
-		logg.Error().Err(err).Msg("scheduler client close failed")
-	}
 	if err := rdb.Close(); err != nil {
 		logg.Error().Err(err).Msg("redis close failed")
 	}
