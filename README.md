@@ -31,7 +31,8 @@ make worker
 - ✅ **Thread-Safe Database Pool** - Concurrent-safe PostgreSQL connection management
 - ✅ **Graceful Shutdown** - Proper resource cleanup and timeout handling
 - ✅ **Background Jobs** - Redis-based task processing with Asynq
-- ✅ **Health Checks** - Lightweight service health monitoring (no Redis flooding)
+- ✅ **Worker Management** - API endpoints for worker status and ping testing
+- ✅ **Health Checks** - Lightweight service health monitoring with duration tracking
 - ✅ **Structured Logging** - JSON logging with request tracing
 - ✅ **Environment Configuration** - Flexible config with validation
 - ✅ **CORS Support** - Configurable cross-origin resource sharing
@@ -156,7 +157,7 @@ make dev-down
 
 ## 🏥 Health Check
 
-The `/health` endpoint provides service status:
+The `/health` endpoint provides service status with duration tracking:
 
 ```json
 {
@@ -164,7 +165,8 @@ The `/health` endpoint provides service status:
     "database": "up",
     "redis": "up"
   },
-  "checked": "2024-02-21T20:41:00Z"
+  "checked": "2024-02-21T20:41:00Z",
+  "duration": 12
 }
 ```
 
@@ -229,7 +231,52 @@ This boilerplate includes several production-ready features:
 GET /health
 ```
 
-Returns the status of database and Redis connections. This endpoint is safe for frequent polling by load balancers — it does not enqueue background jobs.
+Returns the status of database and Redis connections with response duration in milliseconds. This endpoint is safe for frequent polling by load balancers — it does not enqueue background jobs.
+
+### Worker Management
+
+```
+GET /worker/status
+POST /worker/ping
+```
+
+#### Worker Status
+
+Returns scheduler connectivity and available queue information:
+
+```json
+{
+  "scheduler": "connected",
+  "queues": ["critical", "default", "low"],
+  "note": "Use POST /worker/ping to test task processing"
+}
+```
+
+#### Worker Ping
+
+Enqueues a test task to verify worker is processing jobs:
+
+```bash
+# With custom message
+curl -X POST http://localhost:8080/worker/ping \
+  -H "Content-Type: application/json" \
+  -d '{"message": "test from curl"}'
+
+# Without message (uses default)
+curl -X POST http://localhost:8080/worker/ping
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "task_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "task_type": "worker:ping",
+  "queued_at": "2024-02-21T20:41:00Z",
+  "message": "Task queued successfully. Check worker logs to verify processing."
+}
+```
 
 ---
 
@@ -271,25 +318,4 @@ APP_PORT=8080
 ```
 
 ---
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License.
-
----
-
-## 🔗 Links
-
-- [GitHub Repository](https://github.com/mnah05/boiler-go)
-- [Documentation](https://github.com/mnah05/boiler-go/wiki)
-- [Issues](https://github.com/mnah05/boiler-go/issues)
+--
