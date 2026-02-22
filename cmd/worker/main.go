@@ -16,8 +16,11 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// simple test task type
-const TypeHealthCheck = "system:health_check"
+// task types
+const (
+	TypeHealthCheck = "system:health_check"
+	TypeWorkerPing  = "worker:ping"
+)
 
 func main() {
 	cfg := config.Load()
@@ -72,11 +75,24 @@ func main() {
 	// Add logging middleware
 	mux.Use(loggingMiddleware(logg))
 
-	// very basic test handler
+	// health check handler (kept for backward compatibility)
 	mux.HandleFunc(TypeHealthCheck, func(ctx context.Context, t *asynq.Task) error {
 		logg.Info().
 			Str("task_type", t.Type()).
-			Msg("worker is working")
+			Msg("health check task processed")
+		return nil
+	})
+
+	// worker ping handler - used by API to verify worker is alive
+	mux.HandleFunc(TypeWorkerPing, func(ctx context.Context, t *asynq.Task) error {
+		payload := string(t.Payload())
+		if payload == "" {
+			payload = "no payload"
+		}
+		logg.Info().
+			Str("task_type", t.Type()).
+			Str("payload", payload).
+			Msg("worker ping task processed - worker is alive!")
 		return nil
 	})
 

@@ -29,3 +29,13 @@ func (c *Client) Enqueue(ctx context.Context, taskType string, payload []byte, o
 	_, err := c.client.EnqueueContext(ctx, task, opts...)
 	return err
 }
+
+// EnqueueWithID enqueues a task and returns the task ID
+func (c *Client) EnqueueWithID(ctx context.Context, taskType string, payload []byte, opts ...asynq.Option) (string, error) {
+	task := asynq.NewTask(taskType, payload)
+	info, err := c.client.EnqueueContext(ctx, task, opts...)
+	if err != nil {
+		return "", err
+	}
+	return info.ID, nil
+}
