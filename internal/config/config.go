@@ -1,7 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"log"
+	"net/url"
+	"strconv"
 	"sync"
 	"time"
 
@@ -49,8 +52,20 @@ func Load() *Config {
 		if c.DatabaseURL == "" {
 			log.Fatalf("DATABASE_URL is required")
 		}
+		// Validate database URL format
+		if err := validateDatabaseURL(c.DatabaseURL); err != nil {
+			log.Fatalf("invalid DATABASE_URL: %v", err)
+		}
 		if c.RedisAddr == "" {
 			log.Fatalf("REDIS_ADDR is required")
+		}
+		// Validate Redis DB index (0-15 typically, Redis supports 0-15 in default config)
+		if c.RedisDB < 0 || c.RedisDB > 15 {
+			log.Fatalf("REDIS_DB must be between 0 and 15")
+		}
+		// Validate port number
+		if err := validatePort(c.AppPort); err != nil {
+			log.Fatalf("invalid APP_PORT: %v", err)
 		}
 		if c.HealthCheckTimeout <= 0 {
 			log.Fatalf("HEALTH_CHECK_TIMEOUT must be positive")
@@ -66,4 +81,38 @@ func Load() *Config {
 	})
 
 	return cfg
+}
+
+// validatePort validates that the port string is a valid port number (1-65535)
+func validatePort(port string) error {
+	if port == "" {
+		return fmt.Errorf("port cannot be empty")
+	}
+	p, err := strconv.Atoi(port)
+	if err != nil {
+		return fmt.Errorf("port must be a number")
+	}
+	if p < 1 || p > 65535 {
+		return fmt.Errorf("port must be between 1 and 65535")
+	}
+	return nil
+}
+
+// validateDatabaseURL validates that the database URL has a valid format
+func validateDatabaseURL(dbURL string) error {
+	u, err := url.Parse(dbURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL format: %w", err)
+	}
+	// Check for required components
+	if u.Scheme != "postgres" && u.Scheme != "postgresql" {
+		return fmt.Errorf("URL scheme must be 'postgres' or 'postgresql', got '%s'", u.Scheme)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("URL must contain a host")
+	}
+	if u.Path == "" || u.Path == "/" {
+		return fmt.Errorf("URL must contain a database name")
+	}
+	return nil
 }

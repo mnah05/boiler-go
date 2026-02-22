@@ -73,12 +73,17 @@ func main() {
 
 	logg.Info().Msg("shutting down server...")
 
+	// Graceful shutdown: stop accepting new connections, then wait for in-flight requests
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.APIShutdownTimeout)
 	defer cancel()
 
-	// graceful HTTP shutdown
+	// Shutdown gracefully shuts down the server without interrupting any active connections
+	// It first closes all open listeners, then closes all idle connections,
+	// and then waits indefinitely for connections to return to idle and then shut down
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logg.Error().Err(err).Msg("server shutdown failed")
+	} else {
+		logg.Info().Msg("server shutdown completed gracefully")
 	}
 
 	// close resources in reverse order of initialization

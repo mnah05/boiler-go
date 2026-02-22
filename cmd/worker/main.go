@@ -101,7 +101,12 @@ func main() {
 
 	logg.Info().Msg("shutting down worker...")
 
-	// Graceful shutdown with timeout enforcement
+	// Graceful shutdown: First stop accepting new tasks, then wait for in-flight tasks
+	// Stop() stops accepting new tasks immediately
+	srv.Stop()
+	logg.Info().Msg("worker stopped accepting new tasks")
+
+	// Shutdown with timeout enforcement for in-flight tasks
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.WorkerShutdownTimeout)
 	defer cancel()
 

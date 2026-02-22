@@ -28,6 +28,7 @@ func NewHealthHandler(db *pgxpool.Pool, redis *redis.Client, timeout time.Durati
 }
 
 func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	ctx, cancel := context.WithTimeout(r.Context(), h.timeout)
 	defer cancel()
 
@@ -51,9 +52,12 @@ func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
 		overall = http.StatusServiceUnavailable
 	}
 
+	duration := time.Since(start)
+
 	response := map[string]any{
-		"status":  status,
-		"checked": time.Now().UTC(),
+		"status":   status,
+		"checked":  time.Now().UTC(),
+		"duration": duration.Milliseconds(),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -71,4 +75,11 @@ func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write(buf.Bytes()); err != nil {
 		log.Error().Err(err).Msg("failed to write health check response")
 	}
+
+	// Log health check duration for monitoring/debugging
+	log.Debug().
+		Dur("duration", duration).
+		Str("database", status["database"]).
+		Str("redis", status["redis"]).
+		Msg("health check completed")
 }
