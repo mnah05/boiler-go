@@ -45,7 +45,11 @@ func (h *WorkerHandler) Ping(w http.ResponseWriter, r *http.Request) {
 	if r.ContentLength > 0 {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			log.Error().Err(err).Msg("failed to decode ping request")
-			http.Error(w, `{"error": "invalid request body"}`, http.StatusBadRequest)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"error": "invalid request body",
+			})
 			return
 		}
 	}
@@ -64,8 +68,9 @@ func (h *WorkerHandler) Ping(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to enqueue worker ping task")
+		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusServiceUnavailable)
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"error":   "failed to enqueue task",
 			"details": err.Error(),
 		})
@@ -94,7 +99,7 @@ func (h *WorkerHandler) Status(w http.ResponseWriter, r *http.Request) {
 	// Since we don't have direct queue inspection without Redis commands,
 	// we return basic info about the scheduler
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	_ = json.NewEncoder(w).Encode(map[string]any{
 		"scheduler": "connected",
 		"queues":    []string{"critical", "default", "low"},
 		"note":      "Use POST /worker/ping to test task processing",
