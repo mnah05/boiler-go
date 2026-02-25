@@ -4,13 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	"boiler-go/internal/config"
 	"boiler-go/internal/db"
+	"boiler-go/internal/graceful"
 	"boiler-go/internal/handler"
 	"boiler-go/internal/scheduler"
 	"boiler-go/pkg/logger"
@@ -20,15 +18,18 @@ import (
 )
 
 func main() {
-	cfg := config.Load()
 	logg := logger.New()
+	cfg := config.Load(logg)
 	ctx := context.Background()
 
-	// Initialize database pool
-	if err := db.Open(cfg); err != nil {
+	// Initialize database pool with timeout context
+	dbCtx, dbCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer dbCancel()
+	if err := db.Open(dbCtx, cfg); err != nil {
 		logg.Fatal().Err(err).Msg("failed to initialize database")
 	}
 	logg.Info().Msg("database connected")
+	defer db.Close()
 
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     cfg.RedisAddr,
@@ -48,6 +49,7 @@ func main() {
 		DB:       cfg.RedisDB,
 	})
 	logg.Info().Msg("scheduler client initialized")
+	defer schedulerClient.Close()
 
 	router := handler.NewRouter(logg, cfg, db.Get(), rdb, schedulerClient)
 
@@ -71,39 +73,27 @@ func main() {
 		}
 	}()
 
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
-
 	select {
 	case err := <-serverErrors:
 		logg.Fatal().Err(err).Msg("server startup failed")
-	case sig := <-stop:
-		logg.Info().Str("signal", sig.String()).Msg("shutdown signal received")
+	case sig := <-graceful.WaitForSignal(logg):
+		_ = sig // Signal already logged by WaitForSignal
 	}
 
 	logg.Info().Msg("shutting down server...")
 
-	// Graceful shutdown: stop accepting new connections, then wait for in-flight requests
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.APIShutdownTimeout)
-	defer cancel()
-
-	// Shutdown gracefully shuts down the server without interrupting any active connections
-	// It first closes all open listeners, then closes all idle connections,
-	// and then waits indefinitely for connections to return to idle and then shut down
-	if err := server.Shutdown(shutdownCtx); err != nil {
+	// Use shared graceful shutdown helper
+	shutdownFn := graceful.ServerShutdown(server, cfg.APIShutdownTimeout, logg)
+	if err := shutdownFn(context.Background()); err != nil {
 		logg.Error().Err(err).Msg("server shutdown failed")
 	} else {
 		logg.Info().Msg("server shutdown completed gracefully")
 	}
 
 	// close resources in reverse order of initialization
-	if err := schedulerClient.Close(); err != nil {
-		logg.Error().Err(err).Msg("scheduler client close failed")
-	}
 	if err := rdb.Close(); err != nil {
 		logg.Error().Err(err).Msg("redis close failed")
 	}
-	db.Close()
 
 	logg.Info().Msg("server stopped cleanly")
 }

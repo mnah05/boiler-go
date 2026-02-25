@@ -5,14 +5,14 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// FromEchoContext extracts the logger from an echo context.
-// It first checks for a logger stored with the "logger" key,
-// then falls back to extracting from the standard context.
+// FromEchoContext retrieves the logger from Echo's context.
+// If no logger is found in the context, it falls back to the global logger
+// instead of a no-op logger to ensure logs are never silently dropped.
 func FromEchoContext(c echo.Context) zerolog.Logger {
 	// First try to get from echo's context store
 	if log, ok := c.Get("logger").(zerolog.Logger); ok {
 		return log
 	}
-	// Fall back to standard context extraction
-	return FromContext(c.Request().Context())
+	// Fall back to global logger if missing (never silently drop logs)
+	return Global()
 }

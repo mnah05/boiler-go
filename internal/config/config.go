@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"log"
 	"net/url"
 	"strconv"
 	"sync"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/caarlos0/env/v11"
 	"github.com/joho/godotenv"
+	"github.com/rs/zerolog"
 )
 
 type Config struct {
@@ -36,45 +36,46 @@ var (
 )
 
 // Load initializes configuration and FAILS FAST if anything is wrong.
-func Load() *Config {
+// It uses the provided logger for configuration-related logging.
+func Load(logg zerolog.Logger) *Config {
 	once.Do(func() {
 		if err := godotenv.Load(); err != nil {
-			log.Println("no .env file found (using system environment)")
+			logg.Info().Msg("no .env file found (using system environment)")
 		}
 
 		c := Config{}
 
 		if err := env.Parse(&c); err != nil {
-			log.Fatalf("failed to load config: %v", err)
+			logg.Fatal().Err(err).Msg("failed to load config")
 		}
 
 		// Basic validation
 		if c.DatabaseURL == "" {
-			log.Fatalf("DATABASE_URL is required")
+			logg.Fatal().Msg("DATABASE_URL is required")
 		}
 		// Validate database URL format
 		if err := validateDatabaseURL(c.DatabaseURL); err != nil {
-			log.Fatalf("invalid DATABASE_URL: %v", err)
+			logg.Fatal().Err(err).Msg("invalid DATABASE_URL")
 		}
 		if c.RedisAddr == "" {
-			log.Fatalf("REDIS_ADDR is required")
+			logg.Fatal().Msg("REDIS_ADDR is required")
 		}
 		// Validate Redis DB index (0-15 typically, Redis supports 0-15 in default config)
 		if c.RedisDB < 0 || c.RedisDB > 15 {
-			log.Fatalf("REDIS_DB must be between 0 and 15")
+			logg.Fatal().Msg("REDIS_DB must be between 0 and 15")
 		}
 		// Validate port number
 		if err := validatePort(c.AppPort); err != nil {
-			log.Fatalf("invalid APP_PORT: %v", err)
+			logg.Fatal().Err(err).Msg("invalid APP_PORT")
 		}
 		if c.HealthCheckTimeout <= 0 {
-			log.Fatalf("HEALTH_CHECK_TIMEOUT must be positive")
+			logg.Fatal().Msg("HEALTH_CHECK_TIMEOUT must be positive")
 		}
 		if c.APIShutdownTimeout <= 0 {
-			log.Fatalf("API_SHUTDOWN_TIMEOUT must be positive")
+			logg.Fatal().Msg("API_SHUTDOWN_TIMEOUT must be positive")
 		}
 		if c.WorkerShutdownTimeout <= 0 {
-			log.Fatalf("WORKER_SHUTDOWN_TIMEOUT must be positive")
+			logg.Fatal().Msg("WORKER_SHUTDOWN_TIMEOUT must be positive")
 		}
 
 		cfg = &c

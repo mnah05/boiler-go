@@ -15,7 +15,9 @@ var (
 	mu   sync.RWMutex
 )
 
-func Open(cfg *config.Config) error {
+// Open initializes the database pool with the provided context for timeout control.
+// The caller should provide a context with appropriate timeout for connection establishment.
+func Open(ctx context.Context, cfg *config.Config) error {
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -33,12 +35,12 @@ func Open(cfg *config.Config) error {
 	poolConfig.MaxConnIdleTime = 5 * time.Minute
 	poolConfig.HealthCheckPeriod = 1 * time.Minute
 
-	newPool, err := pgxpool.NewWithConfig(context.Background(), poolConfig)
+	newPool, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create pool: %w", err)
 	}
 
-	if err := newPool.Ping(context.Background()); err != nil {
+	if err := newPool.Ping(ctx); err != nil {
 		newPool.Close() // Clean up the pool on ping failure
 		return fmt.Errorf("database unreachable: %w", err)
 	}

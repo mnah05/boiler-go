@@ -29,12 +29,12 @@ make worker
 ## 📋 Features
 
 - ✅ **Thread-Safe Database Pool** - Concurrent-safe PostgreSQL connection management
-- ✅ **Graceful Shutdown** - Proper resource cleanup and timeout handling
+- ✅ **Graceful Shutdown** - Shared utilities for proper resource cleanup and timeout handling
 - ✅ **Background Jobs** - Redis-based task processing with Asynq
 - ✅ **Worker Management** - API endpoints for worker status and ping testing
 - ✅ **Health Checks** - Lightweight service health monitoring with duration tracking
-- ✅ **Structured Logging** - JSON logging with request tracing
-- ✅ **Environment Configuration** - Flexible config with validation
+- ✅ **Structured Logging** - JSON logging with request tracing and correlation IDs
+- ✅ **Environment Configuration** - Flexible config with validation and structured logging
 - ✅ **CORS Support** - Configurable cross-origin resource sharing
 - ✅ **Security Hardened** - Request size limits, timeouts, and panic recovery
 - ✅ **Database Migrations** - Schema versioning with golang-migrate
@@ -48,12 +48,44 @@ make worker
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │   HTTP Client   │───▶│   API Server    │───▶│   PostgreSQL    │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
+                              │                         ▲
+                              │                         │
+                              ▼                         │
+                       ┌─────────────────┐              │
+                       │  Task Scheduler │──────────────┘
+                       │  (Redis Queue)  │
+                       └─────────────────┘
                               │
                               ▼
-                       ┌─────────────────┐    ┌─────────────────┐
-                       │ Background Jobs │───▶│     Redis       │
-                       │    (Worker)     │    │   (Queue/Cache) │
-                       └─────────────────┘    └─────────────────┘
+                       ┌─────────────────┐
+                       │  Worker Process │
+                       │  (Job Consumer) │
+                       └─────────────────┘
+```
+
+### Request Flow
+
+```
+HTTP Request
+    │
+    ▼
+┌─────────────────┐
+│ Logger Middleware│ ← Injects request_id and logger into context
+└─────────────────┘
+    │
+    ▼
+┌─────────────────┐
+│  HTTP Handler   │ ← Uses request-scoped logger, enqueues tasks with request_id
+└─────────────────┘
+    │
+    ├──► Database (pgx pool)
+    │
+    └──► Redis Queue (Asynq)
+              │
+              ▼
+         ┌─────────┐
+         │  Worker │ ← Processes task, logs with original request_id
+         └─────────┘
 ```
 
 ### Project Structure
@@ -61,20 +93,37 @@ make worker
 ```
 boiler-go/
 ├── cmd/
-│   ├── api/          # HTTP API server
-│   └── worker/       # Background job processor
+│   ├── api/                 # HTTP API server entry point
+│   └── worker/              # Background job processor entry point
 ├── internal/
-│   ├── config/       # Environment configuration
-│   ├── db/          # Database connection and queries
-│   ├── handler/     # HTTP request handlers
-│   ├── middleware/   # HTTP middleware
-│   └── scheduler/    # Job scheduling client
+│   ├── config/              # Environment configuration with structured logging
+│   ├── db/                  # Database connection (context-aware) and sqlc queries
+│   ├── graceful/            # Shared graceful shutdown utilities
+│   ├── handler/             # HTTP request handlers
+│   ├── middleware/          # HTTP middleware (logging, CORS, recovery)
+│   ├── queue/               # Shared queue names and priority configuration
+│   ├── scheduler/           # Job scheduling client (Asynq wrapper)
+│   └── tasks/               # Shared task type constants
 ├── pkg/
-│   └── logger/      # Structured logging utilities
-├── migrations/      # Database migration files (golang-migrate)
-├── sql/             # SQL schema and queries for sqlc
+│   └── logger/              # Structured logging utilities with global fallback
+├── migrations/              # Database migration files (golang-migrate)
+├── sql/                     # SQL schema and queries for sqlc
 └── docker-compose.yml
 ```
+
+### Package Responsibilities
+
+| Package | Purpose | Key Types/Functions |
+|---------|---------|---------------------|
+| `internal/config` | Environment parsing and validation | `Load(logg)`, `MustLoad()`, `Config` struct |
+| `internal/db` | Thread-safe database pool | `Open(ctx, cfg)`, `Get()`, `Close()` |
+| `internal/graceful` | Shared shutdown utilities | `WaitForSignal()`, `WorkerShutdown()`, `ServerShutdown()` |
+| `internal/handler` | HTTP handlers | `HealthHandler`, `WorkerHandler` |
+| `internal/middleware` | Echo middleware | `RequestLogger()` |
+| `internal/queue` | Queue configuration | `Names()`, `Priorities()` |
+| `internal/scheduler` | Task enqueueing | `Client.Enqueue()`, `Client.EnqueueWithID()` |
+| `internal/tasks` | Task type constants | `TypeWorkerPing` |
+| `pkg/logger` | Logging utilities | `New()`, `Global()`, `FromEchoContext()` |
 
 ---
 
@@ -109,6 +158,8 @@ The database pool is configured with sensible defaults:
 - **Connection Lifetime**: 30 minutes
 - **Idle Timeout**: 5 minutes
 - **Health Check Period**: 1 minute
+
+The pool initialization accepts a `context.Context` for timeout control during startup.
 
 ---
 
@@ -170,6 +221,8 @@ The `/health` endpoint provides service status with duration tracking:
 }
 ```
 
+Health check completion is logged at `Info` level for operational visibility.
+
 ---
 
 ## 📦 Dependencies
@@ -202,6 +255,13 @@ This boilerplate includes several production-ready features:
 - Configuration loading uses `sync.Once` for safe singleton pattern
 - All shared resources are properly synchronized
 
+### Logging
+
+- **Structured JSON logging** throughout the application
+- **Request correlation** - HTTP `X-Request-ID` is propagated to worker logs via task payloads
+- **Global fallback** - `FromEchoContext` falls back to a global logger instead of silently dropping logs
+- **Consistent format** - Config uses the same logger as the rest of the app
+
 ### Error Handling
 
 - Comprehensive error checking and logging
@@ -211,13 +271,14 @@ This boilerplate includes several production-ready features:
 ### Resource Management
 
 - Connection pooling with configurable limits
-- Automatic cleanup on shutdown
+- Context-aware database initialization with timeouts
+- Automatic cleanup on shutdown via shared graceful shutdown utilities
 - Memory leak prevention
 
 ### Monitoring
 
 - Health check endpoints for all services
-- Structured logging with request tracing
+- Structured logging with request tracing and correlation IDs
 - Error metrics and alerting ready
 
 ---
@@ -251,14 +312,17 @@ Returns scheduler connectivity and available queue information:
 }
 ```
 
+Queue names are sourced from `internal/queue` package for consistency with the worker configuration.
+
 #### Worker Ping
 
-Enqueues a test task to verify worker is processing jobs:
+Enqueues a test task to verify worker is processing jobs. The request ID is propagated to the worker for end-to-end tracing:
 
 ```bash
-# With custom message
+# With custom message and request ID
 curl -X POST http://localhost:8080/worker/ping \
   -H "Content-Type: application/json" \
+  -H "X-Request-ID: req-12345" \
   -d '{"message": "test from curl"}'
 
 # Without message (uses default)
@@ -276,6 +340,8 @@ Response:
   "message": "Task queued successfully. Check worker logs to verify processing."
 }
 ```
+
+Worker logs will include the original `request_id` for correlation.
 
 ---
 
@@ -317,3 +383,53 @@ APP_PORT=8080
 ```
 
 ---
+
+## 🏗️ Design Patterns
+
+### Shared Constants Pattern
+
+Task types and queue names are defined in dedicated packages (`internal/tasks`, `internal/queue`) to ensure consistency between handlers and workers:
+
+```go
+// internal/tasks/tasks.go
+const TypeWorkerPing = "worker:ping"
+
+// Used in both handler and worker
+import "boiler-go/internal/tasks"
+tasks.TypeWorkerPing
+```
+
+### Context-Aware Initialization
+
+Database and other external connections accept a `context.Context` for timeout control:
+
+```go
+ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+defer cancel()
+if err := db.Open(ctx, cfg); err != nil {
+    log.Fatal(err)
+}
+```
+
+### Logger Injection Pattern
+
+The configuration loader accepts a logger for structured logging during initialization:
+
+```go
+logg := logger.New()
+cfg := config.Load(logg)  // Uses structured logging, not stdlib log
+```
+
+### Graceful Shutdown Pattern
+
+Shared utilities handle shutdown consistently across binaries:
+
+```go
+// API server
+shutdownFn := graceful.ServerShutdown(server, cfg.APIShutdownTimeout, logg)
+shutdownFn(context.Background())
+
+// Worker
+shutdownFn := graceful.WorkerShutdown(srv, cfg.WorkerShutdownTimeout, logg)
+shutdownFn()
+```

@@ -34,12 +34,12 @@ func NewRouter(log zerolog.Logger, cfg *config.Config, db *pgxpool.Pool, redis *
 	health := NewHealthHandler(db, redis, cfg.HealthCheckTimeout)
 	worker := NewWorkerHandler(scheduler)
 
-	e.GET("/health", echo.WrapHandler(http.HandlerFunc(health.Check)))
+	e.GET("/health", health.Check)
 
 	// Worker routes
 	workerGroup := e.Group("/worker")
-	workerGroup.GET("/status", echo.WrapHandler(http.HandlerFunc(worker.Status)))
-	workerGroup.POST("/ping", echo.WrapHandler(http.HandlerFunc(worker.Ping)))
+	workerGroup.GET("/status", worker.Status)
+	workerGroup.POST("/ping", worker.Ping)
 
 	return e
 }

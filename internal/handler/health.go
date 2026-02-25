@@ -1,15 +1,14 @@
 package handler
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"net/http"
 	"time"
 
 	"boiler-go/pkg/logger"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/labstack/echo/v4"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -27,14 +26,17 @@ func NewHealthHandler(db *pgxpool.Pool, redis *redis.Client, timeout time.Durati
 	}
 }
 
-func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
+// Check handles GET /health using Echo's context.
+func (h *HealthHandler) Check(c echo.Context) error {
 	start := time.Now()
-	ctx, cancel := context.WithTimeout(r.Context(), h.timeout)
+	req := c.Request()
+
+	ctx, cancel := context.WithTimeout(req.Context(), h.timeout)
 	defer cancel()
 
-	log := logger.FromContext(ctx)
+	log := logger.FromEchoContext(c)
 
-	status := map[string]string{
+	status := echo.Map{
 		"database": "up",
 		"redis":    "up",
 	}
@@ -54,32 +56,20 @@ func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
 
 	duration := time.Since(start)
 
-	response := map[string]any{
+	response := echo.Map{
 		"status":   status,
 		"checked":  time.Now().UTC(),
 		"duration": duration.Milliseconds(),
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(overall)
-
-	// Use a separate writer to avoid partial writes on error
-	buf := &bytes.Buffer{}
-	if err := json.NewEncoder(buf).Encode(response); err != nil {
-		log.Error().Err(err).Msg("failed to encode health check response")
-		// Can't write error response since headers already sent
-		return
-	}
-
-	// Write the buffered response
-	if _, err := w.Write(buf.Bytes()); err != nil {
-		log.Error().Err(err).Msg("failed to write health check response")
-	}
-
-	// Log health check duration for monitoring/debugging
-	log.Debug().
+	// Log health check completion at Info level for operational visibility
+	dbStatus, _ := status["database"].(string)
+	redisStatus, _ := status["redis"].(string)
+	log.Info().
 		Dur("duration", duration).
-		Str("database", status["database"]).
-		Str("redis", status["redis"]).
+		Str("database", dbStatus).
+		Str("redis", redisStatus).
 		Msg("health check completed")
+
+	return c.JSON(overall, response)
 }
