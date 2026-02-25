@@ -7,39 +7,39 @@ import (
 	custommiddleware "boiler-go/internal/middleware"
 	"boiler-go/internal/scheduler"
 
-	"github.com/go-chi/chi/v5"
-	chimiddleware "github.com/go-chi/chi/v5/middleware"
-	"github.com/go-chi/cors"
+	"github.com/labstack/echo/v4"
+	echomiddleware "github.com/labstack/echo/v4/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 )
 
 func NewRouter(log zerolog.Logger, cfg *config.Config, db *pgxpool.Pool, redis *redis.Client, scheduler *scheduler.Client) http.Handler {
-	r := chi.NewRouter()
+	e := echo.New()
+	e.HideBanner = true
+	e.HidePort = true
 
-	r.Use(chimiddleware.RequestID)
-	r.Use(chimiddleware.Recoverer)
-	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"*"},
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type", "X-Request-ID"},
-		ExposedHeaders:   []string{"Link"},
+	e.Use(echomiddleware.Recover())
+	e.Use(echomiddleware.CORSWithConfig(echomiddleware.CORSConfig{
+		AllowOrigins:     []string{"*"},
+		AllowMethods:     []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions},
+		AllowHeaders:     []string{"Accept", "Authorization", "Content-Type", "X-Request-ID"},
+		ExposeHeaders:    []string{"Link", "X-Request-ID"},
 		AllowCredentials: false,
 		MaxAge:           300,
 	}))
-	r.Use(custommiddleware.RequestLogger(log))
+	// Use native Echo middleware for request logging and request ID handling
+	e.Use(custommiddleware.RequestLogger(log))
 
 	health := NewHealthHandler(db, redis, cfg.HealthCheckTimeout)
 	worker := NewWorkerHandler(scheduler)
 
-	r.Get("/health", health.Check)
+	e.GET("/health", echo.WrapHandler(http.HandlerFunc(health.Check)))
 
 	// Worker routes
-	r.Route("/worker", func(r chi.Router) {
-		r.Get("/status", worker.Status)
-		r.Post("/ping", worker.Ping)
-	})
+	workerGroup := e.Group("/worker")
+	workerGroup.GET("/status", echo.WrapHandler(http.HandlerFunc(worker.Status)))
+	workerGroup.POST("/ping", echo.WrapHandler(http.HandlerFunc(worker.Ping)))
 
-	return r
+	return e
 }

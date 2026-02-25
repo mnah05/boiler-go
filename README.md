@@ -176,8 +176,7 @@ The `/health` endpoint provides service status with duration tracking:
 
 ### Core Backend
 
-- **[chi](https://github.com/go-chi/chi)** - Lightweight HTTP router
-- **[chi/cors](https://github.com/go-chi/cors)** - CORS middleware
+- **[Echo](https://github.com/labstack/echo)** - High performance HTTP router and middleware
 - **[pgx/v5](https://github.com/jackc/pgx)** - PostgreSQL driver
 - **[sqlc](https://sqlc.dev/)** - Type-safe SQL code generation
 

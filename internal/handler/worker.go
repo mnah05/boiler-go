@@ -40,6 +40,9 @@ type PingResponse struct {
 func (h *WorkerHandler) Ping(w http.ResponseWriter, r *http.Request) {
 	log := logger.FromContext(r.Context())
 
+	// Limit request body size to 1MB
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+
 	// Parse optional message from request body
 	var req PingRequest
 	if r.ContentLength > 0 {
