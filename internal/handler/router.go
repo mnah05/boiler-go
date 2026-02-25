@@ -7,9 +7,9 @@ import (
 	custommiddleware "boiler-go/internal/middleware"
 	"boiler-go/internal/scheduler"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/labstack/echo/v4"
 	echomiddleware "github.com/labstack/echo/v4/middleware"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 )

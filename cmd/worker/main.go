@@ -17,6 +17,34 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// newLogger creates a logger based on the configuration.
+// defaultFile is used when LOG_FILE is not set and LOG_OUTPUT is "file" or "both".
+func newLogger(cfg *config.Config, defaultFile string) zerolog.Logger {
+	outputCfg := logger.OutputConfig{}
+
+	switch cfg.LogOutput {
+	case "stdout":
+		outputCfg.Stdout = true
+		outputCfg.StdoutOnly = true
+	case "file":
+		outputCfg.Stdout = false
+		outputCfg.StdoutOnly = false
+		outputCfg.FilePath = cfg.LogFile
+		if outputCfg.FilePath == "" {
+			outputCfg.FilePath = defaultFile
+		}
+	case "both":
+		outputCfg.Stdout = true
+		outputCfg.StdoutOnly = false
+		outputCfg.FilePath = cfg.LogFile
+		if outputCfg.FilePath == "" {
+			outputCfg.FilePath = defaultFile
+		}
+	}
+
+	return logger.NewWithOutput(outputCfg)
+}
+
 // PingTaskPayload mirrors the structure from internal/handler/worker.go
 type PingTaskPayload struct {
 	Message   string    `json:"message"`
@@ -25,8 +53,11 @@ type PingTaskPayload struct {
 }
 
 func main() {
-	logg := logger.New()
-	cfg := config.Load(logg)
+	// Load config first with basic logger
+	cfg := config.Load(logger.New())
+
+	// Create logger based on configuration
+	logg := newLogger(cfg, "logs/worker.log")
 
 	// Initialize database pool with timeout context
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

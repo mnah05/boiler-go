@@ -28,6 +28,14 @@ type Config struct {
 	HealthCheckTimeout    time.Duration `env:"HEALTH_CHECK_TIMEOUT" envDefault:"2s"`
 	APIShutdownTimeout    time.Duration `env:"API_SHUTDOWN_TIMEOUT" envDefault:"10s"`
 	WorkerShutdownTimeout time.Duration `env:"WORKER_SHUTDOWN_TIMEOUT" envDefault:"30s"`
+
+	// logging
+	// LogOutput: "stdout" | "file" | "both" (default: "stdout")
+	LogOutput string `env:"LOG_OUTPUT" envDefault:"stdout"`
+	// LogFile: path to log file when LogOutput is "file" or "both"
+	// For API: defaults to "logs/api.log"
+	// For Worker: defaults to "logs/worker.log"
+	LogFile string `env:"LOG_FILE"`
 }
 
 var (
@@ -76,6 +84,11 @@ func Load(logg zerolog.Logger) *Config {
 		}
 		if c.WorkerShutdownTimeout <= 0 {
 			logg.Fatal().Msg("WORKER_SHUTDOWN_TIMEOUT must be positive")
+		}
+
+		// Validate LOG_OUTPUT
+		if c.LogOutput != "stdout" && c.LogOutput != "file" && c.LogOutput != "both" {
+			logg.Fatal().Msg("LOG_OUTPUT must be one of: stdout, file, both")
 		}
 
 		cfg = &c
