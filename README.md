@@ -98,7 +98,7 @@ boiler-go/
 ├── internal/
 │   ├── config/              # Environment configuration with structured logging
 │   ├── db/                  # Database connection (context-aware) and sqlc queries
-│   ├── graceful/            # Shared graceful shutdown utilities
+│   ├── handler/             # HTTP request handlers
 │   ├── handler/             # HTTP request handlers
 │   ├── middleware/          # HTTP middleware (logging, CORS, recovery)
 │   ├── queue/               # Shared queue names and priority configuration
@@ -117,7 +117,6 @@ boiler-go/
 |---------|---------|---------------------|
 | `internal/config` | Environment parsing and validation | `Load(logg)`, `MustLoad()`, `Config` struct |
 | `internal/db` | Thread-safe database pool | `Open(ctx, cfg)`, `Get()`, `Close()` |
-| `internal/graceful` | Shared shutdown utilities | `WaitForSignal()`, `WorkerShutdown()`, `ServerShutdown()` |
 | `internal/handler` | HTTP handlers | `HealthHandler`, `WorkerHandler` |
 | `internal/middleware` | Echo middleware | `RequestLogger()` |
 | `internal/queue` | Queue configuration | `Names()`, `Priorities()` |
@@ -272,7 +271,7 @@ This boilerplate includes several production-ready features:
 
 - Connection pooling with configurable limits
 - Context-aware database initialization with timeouts
-- Automatic cleanup on shutdown via shared graceful shutdown utilities
+- Automatic cleanup on shutdown via graceful shutdown with timeout handling
 - Memory leak prevention
 
 ### Monitoring
@@ -422,14 +421,33 @@ cfg := config.Load(logg)  // Uses structured logging, not stdlib log
 
 ### Graceful Shutdown Pattern
 
-Shared utilities handle shutdown consistently across binaries:
+Both API server and worker handle shutdown gracefully with timeout control:
 
 ```go
-// API server
-shutdownFn := graceful.ServerShutdown(server, cfg.APIShutdownTimeout, logg)
-shutdownFn(context.Background())
+// API server - shutdown with timeout
+shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.APIShutdownTimeout)
+defer cancel()
 
-// Worker
-shutdownFn := graceful.WorkerShutdown(srv, cfg.WorkerShutdownTimeout, logg)
-shutdownFn()
+if err := server.Shutdown(shutdownCtx); err != nil {
+    logg.Error().Err(err).Msg("server shutdown failed")
+}
+
+// Worker - stop accepting new tasks, then shutdown with timeout
+srv.Stop()
+
+shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.WorkerShutdownTimeout)
+defer cancel()
+
+done := make(chan struct{})
+go func() {
+    srv.Shutdown()
+    close(done)
+}()
+
+select {
+case <-done:
+    logg.Info().Msg("worker shutdown completed gracefully")
+case <-shutdownCtx.Done():
+    logg.Warn().Msg("worker shutdown timed out")
+}
 ```

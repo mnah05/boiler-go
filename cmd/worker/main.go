@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"boiler-go/internal/config"
 	"boiler-go/internal/db"
-	"boiler-go/internal/graceful"
 	"boiler-go/internal/queue"
 	"boiler-go/internal/tasks"
 	"boiler-go/pkg/logger"
@@ -112,7 +114,7 @@ func main() {
 		// Parse payload for correlation ID
 		var payload PingTaskPayload
 		logEvent := logg.Info()
-		
+
 		if err := json.Unmarshal(t.Payload(), &payload); err != nil {
 			// Fallback to raw payload if parsing fails
 			logEvent.Str("payload_raw", string(t.Payload()))
@@ -138,18 +140,40 @@ func main() {
 		}
 	}()
 
+	// Setup signal handling
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
 	select {
 	case err := <-workerErrors:
 		logg.Fatal().Err(err).Msg("worker startup failed")
-	case sig := <-graceful.WaitForSignal(logg):
-		_ = sig // Signal already logged by WaitForSignal
+	case sig := <-sigChan:
+		logg.Info().Str("signal", sig.String()).Msg("shutdown signal received")
 	}
 
 	logg.Info().Msg("shutting down worker...")
 
-	// Use shared graceful shutdown
-	shutdownFn := graceful.WorkerShutdown(srv, cfg.WorkerShutdownTimeout, logg)
-	shutdownFn()
+	// Stop accepting new tasks
+	srv.Stop()
+	logg.Info().Msg("worker stopped accepting new tasks")
+
+	// Shutdown with timeout enforcement for in-flight tasks
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.WorkerShutdownTimeout)
+	defer cancel()
+
+	// Run srv.Shutdown() in a goroutine since it blocks until all in-flight tasks complete
+	done := make(chan struct{})
+	go func() {
+		srv.Shutdown()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		logg.Info().Msg("worker shutdown completed gracefully")
+	case <-shutdownCtx.Done():
+		logg.Warn().Msg("worker shutdown timed out, forcing exit")
+	}
 
 	logg.Info().Msg("worker stopped cleanly")
 }

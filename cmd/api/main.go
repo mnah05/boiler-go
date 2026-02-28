@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"boiler-go/internal/config"
 	"boiler-go/internal/db"
-	"boiler-go/internal/graceful"
 	"boiler-go/internal/handler"
 	"boiler-go/internal/scheduler"
 	"boiler-go/pkg/logger"
@@ -105,18 +107,24 @@ func main() {
 		}
 	}()
 
+	// Setup signal handling
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
 	select {
 	case err := <-serverErrors:
 		logg.Fatal().Err(err).Msg("server startup failed")
-	case sig := <-graceful.WaitForSignal(logg):
-		_ = sig // Signal already logged by WaitForSignal
+	case sig := <-sigChan:
+		logg.Info().Str("signal", sig.String()).Msg("shutdown signal received")
 	}
 
 	logg.Info().Msg("shutting down server...")
 
-	// Use shared graceful shutdown helper
-	shutdownFn := graceful.ServerShutdown(server, cfg.APIShutdownTimeout, logg)
-	if err := shutdownFn(context.Background()); err != nil {
+	// Graceful shutdown with timeout
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.APIShutdownTimeout)
+	defer cancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
 		logg.Error().Err(err).Msg("server shutdown failed")
 	} else {
 		logg.Info().Msg("server shutdown completed gracefully")
