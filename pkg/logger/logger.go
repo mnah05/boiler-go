@@ -17,50 +17,38 @@ var (
 	globalOnce sync.Once
 )
 
-// OutputConfig defines where logs should be written.
-type OutputConfig struct {
-	// FilePath is the path to the log file. If empty, no file logging.
-	FilePath string
-	// Stdout enables console output.
-	Stdout bool
-	// StdoutOnly disables file output and only logs to stdout.
-	StdoutOnly bool
-}
-
 // New creates a new logger with the default configuration (stdout only).
 func New() zerolog.Logger {
-	return NewWithOutput(OutputConfig{Stdout: true, StdoutOnly: true})
+	logger, _ := NewWithOutput("", true)
+	return logger
 }
 
 // NewWithOutput creates a new logger with configurable output destinations.
-func NewWithOutput(cfg OutputConfig) zerolog.Logger {
+// Returns an error if file logging is enabled but the file/directory cannot be created.
+func NewWithOutput(filePath string, enableConsole bool) (zerolog.Logger, error) {
 	var writers []io.Writer
 
-	// Add stdout if enabled or if stdout-only mode
-	if cfg.Stdout || cfg.StdoutOnly {
+	// Add stdout if enabled
+	if enableConsole {
 		writers = append(writers, zerolog.ConsoleWriter{
 			Out:        os.Stdout,
 			TimeFormat: "2006-01-02 15:04:05",
 		})
 	}
 
-	// Add file output if configured and not stdout-only
-	if !cfg.StdoutOnly && cfg.FilePath != "" {
+	// Add file output if configured
+	if filePath != "" {
 		// Ensure log directory exists
-		dir := filepath.Dir(cfg.FilePath)
+		dir := filepath.Dir(filePath)
 		if dir != "" && dir != "." {
 			if err := os.MkdirAll(dir, 0755); err != nil {
-				// Fall back to stdout with error if can't create directory
-				fmt.Fprintf(os.Stderr, "failed to create log directory: %v\n", err)
-				return zerolog.New(os.Stdout).With().Timestamp().Logger().Level(zerolog.InfoLevel)
+				return zerolog.Logger{}, fmt.Errorf("failed to create log directory: %w", err)
 			}
 		}
 
-		file, err := os.OpenFile(cfg.FilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 		if err != nil {
-			// Fall back to stdout with error if can't open file
-			fmt.Fprintf(os.Stderr, "failed to open log file: %v\n", err)
-			return zerolog.New(os.Stdout).With().Timestamp().Logger().Level(zerolog.InfoLevel)
+			return zerolog.Logger{}, fmt.Errorf("failed to open log file: %w", err)
 		}
 
 		// Note: We don't close the file here - the caller should manage the lifecycle
@@ -79,7 +67,7 @@ func NewWithOutput(cfg OutputConfig) zerolog.Logger {
 		output = zerolog.MultiLevelWriter(writers...)
 	}
 
-	return zerolog.New(output).With().Timestamp().Logger().Level(zerolog.InfoLevel)
+	return zerolog.New(output).With().Timestamp().Logger().Level(zerolog.InfoLevel), nil
 }
 
 // Global returns the global fallback logger.

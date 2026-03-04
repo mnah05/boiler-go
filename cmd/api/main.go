@@ -23,29 +23,31 @@ import (
 // newLogger creates a logger based on the configuration.
 // defaultFile is used when LOG_FILE is not set and LOG_OUTPUT is "file" or "both".
 func newLogger(cfg *config.Config, defaultFile string) zerolog.Logger {
-	outputCfg := logger.OutputConfig{}
+	var filePath string
+	var enableConsole bool
 
 	switch cfg.LogOutput {
 	case "stdout":
-		outputCfg.Stdout = true
-		outputCfg.StdoutOnly = true
+		enableConsole = true
 	case "file":
-		outputCfg.Stdout = false
-		outputCfg.StdoutOnly = false
-		outputCfg.FilePath = cfg.LogFile
-		if outputCfg.FilePath == "" {
-			outputCfg.FilePath = defaultFile
+		filePath = cfg.LogFile
+		if filePath == "" {
+			filePath = defaultFile
 		}
 	case "both":
-		outputCfg.Stdout = true
-		outputCfg.StdoutOnly = false
-		outputCfg.FilePath = cfg.LogFile
-		if outputCfg.FilePath == "" {
-			outputCfg.FilePath = defaultFile
+		enableConsole = true
+		filePath = cfg.LogFile
+		if filePath == "" {
+			filePath = defaultFile
 		}
 	}
 
-	return logger.NewWithOutput(outputCfg)
+	logg, err := logger.NewWithOutput(filePath, enableConsole)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to initialize logger: %v\n", err)
+		os.Exit(1)
+	}
+	return logg
 }
 
 func main() {
