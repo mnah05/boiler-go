@@ -35,3 +35,5 @@ Thumbs.db
 
 # Project specific
 request.md
+*.yml -diff
+*.yaml -diff
