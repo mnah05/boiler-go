@@ -3,6 +3,8 @@ package middleware
 import (
 	"time"
 
+	"boiler-go/pkg/logger"
+
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/rs/zerolog"
@@ -35,7 +37,7 @@ func RequestLogger(base zerolog.Logger) echo.MiddlewareFunc {
 				Logger()
 
 			// Inject logger into echo.Context
-			c.Set("logger", reqLogger)
+			logger.SetInEchoContext(c, reqLogger)
 
 			// Execute next handler
 			err := next(c)

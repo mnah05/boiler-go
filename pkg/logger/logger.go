@@ -5,73 +5,94 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/rs/zerolog"
 )
 
 var (
-	// global is the default logger instance used as fallback.
-	// It's initialized lazily on first access.
 	global     zerolog.Logger
 	globalOnce sync.Once
 )
 
-// New creates a new logger with the default configuration (stdout only).
-func New() zerolog.Logger {
-	logger, _ := NewWithOutput("", true)
-	return logger
+// ParseLevel converts string to zerolog level.
+func ParseLevel(level string) zerolog.Level {
+	switch strings.ToLower(level) {
+	case "debug":
+		return zerolog.DebugLevel
+	case "info":
+		return zerolog.InfoLevel
+	case "warn", "warning":
+		return zerolog.WarnLevel
+	case "error":
+		return zerolog.ErrorLevel
+	default:
+		return zerolog.InfoLevel
+	}
 }
 
-// NewWithOutput creates a new logger with configurable output destinations.
-// Returns an error if file logging is enabled but the file/directory cannot be created.
-func NewWithOutput(filePath string, enableConsole bool) (zerolog.Logger, error) {
+// New creates a simple stdout logger (console format for dev).
+func New() zerolog.Logger {
+	return zerolog.New(zerolog.ConsoleWriter{
+		Out:        os.Stdout,
+		TimeFormat: "2006-01-02 15:04:05",
+	}).With().Timestamp().Logger()
+}
+
+// NewProduction creates a production logger (json to stdout).
+// This is what you use in production.
+func NewProduction(level string) zerolog.Logger {
+	return zerolog.New(os.Stdout).
+		With().Timestamp().Logger().
+		Level(ParseLevel(level))
+}
+
+// NewWithFile creates a logger with file output.
+// filePath: where to write logs (e.g., "logs/app.log")
+// console: also print to stdout?
+// Note: The file is opened but never closed - acceptable for long-running processes,
+// but for proper cleanup, this should be refactored to return a closer function.
+func NewWithFile(filePath string, console bool, level string) (zerolog.Logger, error) {
 	var writers []io.Writer
 
-	// Add stdout if enabled
-	if enableConsole {
+	// Console output (pretty)
+	if console {
 		writers = append(writers, zerolog.ConsoleWriter{
 			Out:        os.Stdout,
 			TimeFormat: "2006-01-02 15:04:05",
 		})
 	}
 
-	// Add file output if configured
+	// File output (json)
 	if filePath != "" {
-		// Ensure log directory exists
 		dir := filepath.Dir(filePath)
 		if dir != "" && dir != "." {
 			if err := os.MkdirAll(dir, 0755); err != nil {
-				return zerolog.Logger{}, fmt.Errorf("failed to create log directory: %w", err)
+				return zerolog.Logger{}, fmt.Errorf("create log dir: %w", err)
 			}
 		}
 
 		file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 		if err != nil {
-			return zerolog.Logger{}, fmt.Errorf("failed to open log file: %w", err)
+			return zerolog.Logger{}, fmt.Errorf("open log file: %w", err)
 		}
-
-		// Note: We don't close the file here - the caller should manage the lifecycle
-		// or we can use a sync.Once to close on exit if needed
+		// Note: File is intentionally not closed - zerolog will write to it.
+		// For production, use stdout logging (12-factor) instead of files.
 		writers = append(writers, file)
 	}
 
 	var output io.Writer
-	if len(writers) == 0 {
-		// Default to stdout if nothing configured
-		output = os.Stdout
-	} else if len(writers) == 1 {
+	if len(writers) == 1 {
 		output = writers[0]
 	} else {
-		// Multi-writer for both stdout and file
 		output = zerolog.MultiLevelWriter(writers...)
 	}
 
-	return zerolog.New(output).With().Timestamp().Logger().Level(zerolog.InfoLevel), nil
+	return zerolog.New(output).With().Timestamp().Logger().Level(ParseLevel(level)), nil
 }
 
-// Global returns the global fallback logger.
-// This is used when a request-scoped logger is not available.
+// Global returns a fallback logger.
 func Global() zerolog.Logger {
 	globalOnce.Do(func() {
 		global = New()

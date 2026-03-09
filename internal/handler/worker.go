@@ -29,13 +29,6 @@ type PingRequest struct {
 	Message string `json:"message,omitempty"`
 }
 
-// PingTaskPayload is the payload for the worker ping task, including correlation ID.
-type PingTaskPayload struct {
-	Message   string    `json:"message"`
-	RequestID string    `json:"request_id"`
-	QueuedAt  time.Time `json:"queued_at"`
-}
-
 // PingResponse represents the response from worker ping
 type PingResponse struct {
 	Success  bool      `json:"success"`
@@ -78,7 +71,7 @@ func (h *WorkerHandler) Ping(c echo.Context) error {
 	}
 
 	// Build payload with correlation ID
-	payload := PingTaskPayload{
+	payload := tasks.PingTaskPayload{
 		Message:   payloadMsg,
 		RequestID: requestID,
 		QueuedAt:  time.Now().UTC(),

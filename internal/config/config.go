@@ -30,12 +30,13 @@ type Config struct {
 	WorkerShutdownTimeout time.Duration `env:"WORKER_SHUTDOWN_TIMEOUT" envDefault:"30s"`
 
 	// logging
-	// LogOutput: "stdout" | "file" | "both" (default: "stdout")
+	// LogOutput: "stdout" (default), "file", or "both"
+	// Recommendation: Use "stdout" for containers, "file" only if you need local files
 	LogOutput string `env:"LOG_OUTPUT" envDefault:"stdout"`
-	// LogFile: path to log file when LogOutput is "file" or "both"
-	// For API: defaults to "logs/api.log"
-	// For Worker: defaults to "logs/worker.log"
+	// LogFile: path to log file (required when LogOutput is "file" or "both")
 	LogFile string `env:"LOG_FILE"`
+	// LogLevel: "debug", "info" (default), "warn", "error"
+	LogLevel string `env:"LOG_LEVEL" envDefault:"info"`
 }
 
 var (

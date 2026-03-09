@@ -19,41 +19,23 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// newLogger creates a logger based on the configuration.
-// defaultFile is used when LOG_FILE is not set and LOG_OUTPUT is "file" or "both".
-func newLogger(cfg *config.Config, defaultFile string) zerolog.Logger {
-	var filePath string
-	var enableConsole bool
-
+// newLogger creates a logger based on configuration.
+func newLogger(cfg *config.Config) zerolog.Logger {
 	switch cfg.LogOutput {
-	case "stdout":
-		enableConsole = true
-	case "file":
-		filePath = cfg.LogFile
+	case "file", "both":
+		filePath := cfg.LogFile
 		if filePath == "" {
-			filePath = defaultFile
+			filePath = "logs/worker.log"
 		}
-	case "both":
-		enableConsole = true
-		filePath = cfg.LogFile
-		if filePath == "" {
-			filePath = defaultFile
+		logg, err := logger.NewWithFile(filePath, cfg.LogOutput == "both", cfg.LogLevel)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to create logger: %v\n", err)
+			os.Exit(1)
 		}
+		return logg
+	default:
+		return logger.NewProduction(cfg.LogLevel)
 	}
-
-	logg, err := logger.NewWithOutput(filePath, enableConsole)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to initialize logger: %v\n", err)
-		os.Exit(1)
-	}
-	return logg
-}
-
-// PingTaskPayload mirrors the structure from internal/handler/worker.go
-type PingTaskPayload struct {
-	Message   string    `json:"message"`
-	RequestID string    `json:"request_id"`
-	QueuedAt  time.Time `json:"queued_at"`
 }
 
 func main() {
@@ -61,7 +43,7 @@ func main() {
 	cfg := config.Load(logger.New())
 
 	// Create logger based on configuration
-	logg := newLogger(cfg, "logs/worker.log")
+	logg := newLogger(cfg)
 
 	// Initialize database pool with timeout context
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -114,7 +96,7 @@ func main() {
 	// worker ping handler - used by API to verify worker is alive
 	mux.HandleFunc(tasks.TypeWorkerPing, func(ctx context.Context, t *asynq.Task) error {
 		// Parse payload for correlation ID
-		var payload PingTaskPayload
+		var payload tasks.PingTaskPayload
 		logEvent := logg.Info()
 
 		if err := json.Unmarshal(t.Payload(), &payload); err != nil {

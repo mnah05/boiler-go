@@ -49,6 +49,9 @@ func Open(ctx context.Context, cfg *config.Config) error {
 	return nil
 }
 
+// Get returns the database pool. Returns nil if not initialized.
+// The returned pool is safe for concurrent use by multiple goroutines.
+// However, callers should not hold the returned pool across shutdown.
 func Get() *pgxpool.Pool {
 	mu.RLock()
 	defer mu.RUnlock()
