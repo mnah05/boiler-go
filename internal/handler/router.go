@@ -7,39 +7,37 @@ import (
 	custommiddleware "boiler-go/internal/middleware"
 	"boiler-go/internal/scheduler"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/labstack/echo/v4"
-	echomiddleware "github.com/labstack/echo/v4/middleware"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 )
 
 func NewRouter(log zerolog.Logger, cfg *config.Config, db *pgxpool.Pool, redis *redis.Client, scheduler *scheduler.Client) http.Handler {
-	e := echo.New()
-	e.HideBanner = true
-	e.HidePort = true
+	r := chi.NewRouter()
 
-	e.Use(echomiddleware.Recover())
-	e.Use(echomiddleware.CORSWithConfig(echomiddleware.CORSConfig{
-		AllowOrigins:     []string{"*"},
-		AllowMethods:     []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions},
-		AllowHeaders:     []string{"Accept", "Authorization", "Content-Type", "X-Request-ID"},
-		ExposeHeaders:    []string{"Link", "X-Request-ID"},
-		AllowCredentials: false,
-		MaxAge:           300,
+	r.Use(middleware.RequestID)
+	r.Use(middleware.Recoverer)
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins: []string{"*"},
+		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders: []string{"Accept", "Authorization", "Content-Type", "X-Request-ID"},
+		ExposedHeaders: []string{"Link", "X-Request-ID"},
+		MaxAge:         300,
 	}))
-	// Use native Echo middleware for request logging and request ID handling
-	e.Use(custommiddleware.RequestLogger(log))
+	r.Use(custommiddleware.RequestLogger(log))
 
 	health := NewHealthHandler(db, redis, cfg.HealthCheckTimeout)
-	worker := NewWorkerHandler(scheduler)
+	worker := NewWorkerHandler(scheduler, db, redis)
 
-	e.GET("/health", health.Check)
+	r.Get("/health", health.Check)
 
-	// Worker routes
-	workerGroup := e.Group("/worker")
-	workerGroup.GET("/status", worker.Status)
-	workerGroup.POST("/ping", worker.Ping)
+	r.Route("/worker", func(r chi.Router) {
+		r.Get("/status", worker.Status)
+		r.Post("/ping", worker.Ping)
+	})
 
-	return e
+	return r
 }

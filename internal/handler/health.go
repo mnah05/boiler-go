@@ -2,13 +2,13 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"time"
 
 	"boiler-go/pkg/logger"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/labstack/echo/v4"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -26,17 +26,15 @@ func NewHealthHandler(db *pgxpool.Pool, redis *redis.Client, timeout time.Durati
 	}
 }
 
-// Check handles GET /health using Echo's context.
-func (h *HealthHandler) Check(c echo.Context) error {
+func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
-	req := c.Request()
 
-	ctx, cancel := context.WithTimeout(req.Context(), h.timeout)
+	ctx, cancel := context.WithTimeout(r.Context(), h.timeout)
 	defer cancel()
 
-	log := logger.FromEchoContext(c)
+	log := logger.FromChiContext(r.Context())
 
-	status := echo.Map{
+	status := map[string]string{
 		"database": "up",
 		"redis":    "up",
 	}
@@ -56,20 +54,21 @@ func (h *HealthHandler) Check(c echo.Context) error {
 
 	duration := time.Since(start)
 
-	response := echo.Map{
+	response := map[string]any{
 		"status":   status,
 		"checked":  time.Now().UTC(),
 		"duration": duration.Milliseconds(),
 	}
 
-	// Log health check completion at Info level for operational visibility
-	dbStatus, _ := status["database"].(string)
-	redisStatus, _ := status["redis"].(string)
+	dbStatus := status["database"]
+	redisStatus := status["redis"]
 	log.Info().
 		Dur("duration", duration).
 		Str("database", dbStatus).
 		Str("redis", redisStatus).
 		Msg("health check completed")
 
-	return c.JSON(overall, response)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(overall)
+	json.NewEncoder(w).Encode(response)
 }

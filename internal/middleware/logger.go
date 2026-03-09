@@ -1,54 +1,60 @@
 package middleware
 
 import (
+	"net/http"
 	"time"
 
 	"boiler-go/pkg/logger"
 
-	"github.com/google/uuid"
-	"github.com/labstack/echo/v4"
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/rs/zerolog"
 )
 
-// RequestLogger returns an Echo middleware that logs requests and injects
-// a request-scoped logger with request_id into the context.
-func RequestLogger(base zerolog.Logger) echo.MiddlewareFunc {
-	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
+func RequestLogger(base zerolog.Logger) func(next http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
 
-			// Get or generate request ID
-			reqID := c.Request().Header.Get("X-Request-ID")
-			if reqID == "" {
-				reqID = uuid.NewString()
+			// Get request ID from Chi's built-in middleware
+			reqID := middleware.GetReqID(r.Context())
+
+			// Get route pattern from Chi context
+			rctx := chi.RouteContext(r.Context())
+			path := r.URL.Path
+			if rctx != nil {
+				path = rctx.RoutePattern()
 			}
 
-			// Set request ID on response header
-			c.Response().Header().Set("X-Request-ID", reqID)
-
-			// Also set it on the request header so it's available to wrapped handlers
-			c.Request().Header.Set("X-Request-ID", reqID)
-
-			// Create request-scoped logger
+			// Create request-scoped logger with request ID
 			reqLogger := base.With().
 				Str("request_id", reqID).
-				Str("method", c.Request().Method).
-				Str("path", c.Request().URL.Path).
+				Str("method", r.Method).
+				Str("path", path).
 				Logger()
 
-			// Inject logger into echo.Context
-			logger.SetInEchoContext(c, reqLogger)
+			// Inject logger into Chi context
+			ctx := logger.WithChiContext(r.Context(), reqLogger)
 
-			// Execute next handler
-			err := next(c)
+			// Use response writer to capture status code
+			rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+			next.ServeHTTP(rw, r.WithContext(ctx))
 
 			// Log request completion
 			reqLogger.Info().
 				Dur("duration", time.Since(start)).
-				Int("status", c.Response().Status).
+				Int("status", rw.statusCode).
 				Msg("request completed")
-
-			return err
-		}
+		})
 	}
+}
+
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.statusCode = code
+	rw.ResponseWriter.WriteHeader(code)
 }
