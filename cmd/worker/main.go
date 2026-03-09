@@ -20,21 +20,21 @@ import (
 )
 
 // newLogger creates a logger based on configuration.
-func newLogger(cfg *config.Config) zerolog.Logger {
+func newLogger(cfg *config.Config) (zerolog.Logger, func() error) {
 	switch cfg.LogOutput {
 	case "file", "both":
 		filePath := cfg.LogFile
 		if filePath == "" {
 			filePath = "logs/worker.log"
 		}
-		logg, err := logger.NewWithFile(filePath, cfg.LogOutput == "both", cfg.LogLevel)
+		logg, cleanup, err := logger.NewWithFile(filePath, cfg.LogOutput == "both", cfg.LogLevel)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to create logger: %v\n", err)
 			os.Exit(1)
 		}
-		return logg
+		return logg, cleanup
 	default:
-		return logger.NewProduction(cfg.LogLevel)
+		return logger.NewProduction(cfg.LogLevel), func() error { return nil }
 	}
 }
 
@@ -43,7 +43,10 @@ func main() {
 	cfg := config.Load(logger.New())
 
 	// Create logger based on configuration
-	logg := newLogger(cfg)
+	logg, logCleanup := newLogger(cfg)
+	if logCleanup != nil {
+		defer logCleanup()
+	}
 
 	// Initialize database pool with timeout context
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -53,6 +56,11 @@ func main() {
 	}
 	logg.Info().Msg("database connected")
 	defer db.Close()
+
+	pool := db.Get()
+	if pool == nil {
+		logg.Fatal().Msg("database pool is nil")
+	}
 
 	redisOpt := asynq.RedisClientOpt{
 		Addr:     cfg.RedisAddr,
@@ -157,6 +165,11 @@ func main() {
 		logg.Info().Msg("worker shutdown completed gracefully")
 	case <-shutdownCtx.Done():
 		logg.Warn().Msg("worker shutdown timed out, forcing exit")
+	}
+
+	// Explicit logger cleanup on shutdown (handles timeout case)
+	if logCleanup != nil {
+		logCleanup()
 	}
 
 	logg.Info().Msg("worker stopped cleanly")

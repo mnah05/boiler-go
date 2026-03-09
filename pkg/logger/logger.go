@@ -51,10 +51,10 @@ func NewProduction(level string) zerolog.Logger {
 // NewWithFile creates a logger with file output.
 // filePath: where to write logs (e.g., "logs/app.log")
 // console: also print to stdout?
-// Note: The file is opened but never closed - acceptable for long-running processes,
-// but for proper cleanup, this should be refactored to return a closer function.
-func NewWithFile(filePath string, console bool, level string) (zerolog.Logger, error) {
+// Returns the logger and a cleanup function that should be called on shutdown.
+func NewWithFile(filePath string, console bool, level string) (zerolog.Logger, func() error, error) {
 	var writers []io.Writer
+	var file *os.File
 
 	// Console output (pretty)
 	if console {
@@ -69,16 +69,15 @@ func NewWithFile(filePath string, console bool, level string) (zerolog.Logger, e
 		dir := filepath.Dir(filePath)
 		if dir != "" && dir != "." {
 			if err := os.MkdirAll(dir, 0755); err != nil {
-				return zerolog.Logger{}, fmt.Errorf("create log dir: %w", err)
+				return zerolog.Logger{}, nil, fmt.Errorf("create log dir: %w", err)
 			}
 		}
 
-		file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		var err error
+		file, err = os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 		if err != nil {
-			return zerolog.Logger{}, fmt.Errorf("open log file: %w", err)
+			return zerolog.Logger{}, nil, fmt.Errorf("open log file: %w", err)
 		}
-		// Note: File is intentionally not closed - zerolog will write to it.
-		// For production, use stdout logging (12-factor) instead of files.
 		writers = append(writers, file)
 	}
 
@@ -89,7 +88,16 @@ func NewWithFile(filePath string, console bool, level string) (zerolog.Logger, e
 		output = zerolog.MultiLevelWriter(writers...)
 	}
 
-	return zerolog.New(output).With().Timestamp().Logger().Level(ParseLevel(level)), nil
+	logger := zerolog.New(output).With().Timestamp().Logger().Level(ParseLevel(level))
+
+	cleanup := func() error {
+		if file != nil {
+			return file.Close()
+		}
+		return nil
+	}
+
+	return logger, cleanup, nil
 }
 
 // Global returns a fallback logger.

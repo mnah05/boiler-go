@@ -25,22 +25,21 @@ import (
 //   - Production (LOG_OUTPUT=stdout): JSON to stdout
 //   - Development: Pretty console output
 //   - File logging: Write to file (+ optionally console)
-func newLogger(cfg *config.Config) zerolog.Logger {
+func newLogger(cfg *config.Config) (zerolog.Logger, func() error) {
 	switch cfg.LogOutput {
 	case "file", "both":
 		filePath := cfg.LogFile
 		if filePath == "" {
 			filePath = "logs/api.log"
 		}
-		logg, err := logger.NewWithFile(filePath, cfg.LogOutput == "both", cfg.LogLevel)
+		logg, cleanup, err := logger.NewWithFile(filePath, cfg.LogOutput == "both", cfg.LogLevel)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed to create logger: %v\n", err)
 			os.Exit(1)
 		}
-		return logg
+		return logg, cleanup
 	default:
-		// stdout - production default (JSON)
-		return logger.NewProduction(cfg.LogLevel)
+		return logger.NewProduction(cfg.LogLevel), func() error { return nil }
 	}
 }
 
@@ -49,7 +48,10 @@ func main() {
 	cfg := config.Load(logger.New())
 
 	// Create logger based on configuration
-	logg := newLogger(cfg)
+	logg, logCleanup := newLogger(cfg)
+	if logCleanup != nil {
+		defer logCleanup()
+	}
 	ctx := context.Background()
 
 	// Initialize database pool with timeout context
@@ -60,6 +62,11 @@ func main() {
 	}
 	logg.Info().Msg("database connected")
 	defer db.Close()
+
+	pool := db.Get()
+	if pool == nil {
+		logg.Fatal().Msg("database pool is nil")
+	}
 
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     cfg.RedisAddr,
@@ -81,7 +88,7 @@ func main() {
 	logg.Info().Msg("scheduler client initialized")
 	defer schedulerClient.Close()
 
-	router := handler.NewRouter(logg, cfg, db.Get(), rdb, schedulerClient)
+	router := handler.NewRouter(logg, cfg, pool, rdb, schedulerClient)
 
 	server := &http.Server{
 		Addr:           ":" + cfg.AppPort,
@@ -132,7 +139,7 @@ func main() {
 		logg.Error().Err(err).Msg("redis close failed")
 	}
 	logg.Info().Msg("redis disconnected")
-	
+
 	// 4. Scheduler client
 	// (closed via defer, happens after this function returns)
 

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"time"
 
@@ -10,26 +11,30 @@ import (
 	"boiler-go/internal/tasks"
 	"boiler-go/pkg/logger"
 
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/hibiken/asynq"
-	"github.com/labstack/echo/v4"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 )
 
 type WorkerHandler struct {
 	scheduler *scheduler.Client
+	db        *pgxpool.Pool
+	redis     *redis.Client
 }
 
-func NewWorkerHandler(scheduler *scheduler.Client) *WorkerHandler {
+func NewWorkerHandler(scheduler *scheduler.Client, db *pgxpool.Pool, redis *redis.Client) *WorkerHandler {
 	return &WorkerHandler{
 		scheduler: scheduler,
+		db:        db,
+		redis:     redis,
 	}
 }
 
-// PingRequest represents the request body for worker ping
 type PingRequest struct {
 	Message string `json:"message,omitempty"`
 }
 
-// PingResponse represents the response from worker ping
 type PingResponse struct {
 	Success  bool      `json:"success"`
 	TaskID   string    `json:"task_id"`
@@ -38,39 +43,43 @@ type PingResponse struct {
 	Message  string    `json:"message,omitempty"`
 }
 
-// Ping enqueues a test task to verify worker is processing jobs
-// POST /worker/ping
-func (h *WorkerHandler) Ping(c echo.Context) error {
-	req := c.Request()
-	res := c.Response()
+func (h *WorkerHandler) Ping(w http.ResponseWriter, r *http.Request) {
+	log := logger.FromChiContext(r.Context())
 
-	log := logger.FromEchoContext(c)
+	requestID := middleware.GetReqID(r.Context())
 
-	// Extract request ID for correlation
-	requestID := req.Header.Get("X-Request-ID")
-
-	// Limit request body size to 1MB
-	req.Body = http.MaxBytesReader(res, req.Body, 1<<20)
-
-	// Parse optional message from request body
 	var payloadMsg string
-	if req.ContentLength > 0 {
+	if r.ContentLength > 0 {
+		maxSize := int64(1 << 20) // 1MB
+		bodyReader := http.MaxBytesReader(w, r.Body, maxSize)
+		bodyBytes, err := io.ReadAll(bodyReader)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to read request body")
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "request body too large (max 1MB)",
+			})
+			return
+		}
+
 		var body PingRequest
-		if err := c.Bind(&body); err != nil {
+		if err := json.Unmarshal(bodyBytes, &body); err != nil {
 			log.Error().Err(err).Msg("failed to decode ping request")
-			return c.JSON(http.StatusBadRequest, map[string]string{
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{
 				"error": "invalid request body",
 			})
+			return
 		}
 		payloadMsg = body.Message
 	}
 
-	// Default message if not provided
 	if payloadMsg == "" {
 		payloadMsg = "ping from API"
 	}
 
-	// Build payload with correlation ID
 	payload := tasks.PingTaskPayload{
 		Message:   payloadMsg,
 		RequestID: requestID,
@@ -79,23 +88,28 @@ func (h *WorkerHandler) Ping(c echo.Context) error {
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to marshal ping payload")
-		return c.JSON(http.StatusInternalServerError, map[string]string{
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
 			"error": "failed to create task payload",
 		})
+		return
 	}
 
-	// Enqueue the ping task
-	taskID, err := h.scheduler.EnqueueWithID(req.Context(), tasks.TypeWorkerPing, payloadBytes,
+	taskID, err := h.scheduler.EnqueueWithID(r.Context(), tasks.TypeWorkerPing, payloadBytes,
 		asynq.Queue(queue.QueueDefault),
 		asynq.MaxRetry(3),
 		asynq.Timeout(30*time.Second),
 	)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to enqueue worker ping task")
-		return c.JSON(http.StatusServiceUnavailable, map[string]string{
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]string{
 			"error":   "failed to enqueue task",
 			"details": err.Error(),
 		})
+		return
 	}
 
 	log.Info().
@@ -104,7 +118,9 @@ func (h *WorkerHandler) Ping(c echo.Context) error {
 		Str("request_id", requestID).
 		Msg("worker ping task enqueued")
 
-	return c.JSON(http.StatusAccepted, PingResponse{
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(PingResponse{
 		Success:  true,
 		TaskID:   taskID,
 		TaskType: tasks.TypeWorkerPing,
@@ -113,11 +129,9 @@ func (h *WorkerHandler) Ping(c echo.Context) error {
 	})
 }
 
-// Status returns the current worker/queue status
-// GET /worker/status
-func (h *WorkerHandler) Status(c echo.Context) error {
-	// Return queue info from shared package to ensure consistency
-	return c.JSON(http.StatusOK, map[string]any{
+func (h *WorkerHandler) Status(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
 		"scheduler": "connected",
 		"queues":    queue.Names(),
 		"note":      "Use POST /worker/ping to test task processing",

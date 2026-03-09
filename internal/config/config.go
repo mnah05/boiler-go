@@ -91,6 +91,9 @@ func Load(logg zerolog.Logger) *Config {
 		if c.LogOutput != "stdout" && c.LogOutput != "file" && c.LogOutput != "both" {
 			logg.Fatal().Msg("LOG_OUTPUT must be one of: stdout, file, both")
 		}
+		if (c.LogOutput == "file" || c.LogOutput == "both") && c.LogFile == "" {
+			logg.Fatal().Msg("LOG_FILE is required when LOG_OUTPUT is file or both")
+		}
 
 		cfg = &c
 	})
