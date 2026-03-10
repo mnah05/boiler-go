@@ -34,7 +34,7 @@ func NewWorkerHandler(scheduler *scheduler.Client, db *pgxpool.Pool, redis *redi
 }
 
 type PingRequest struct {
-	Message string `json:"message,omitempty" validate:"max=500"`
+	Message string `json:"message,omitempty" validate:"omitempty,max=500"`
 }
 
 type PingResponse struct {

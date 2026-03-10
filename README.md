@@ -36,6 +36,8 @@ make worker
 - ✅ **Structured Logging** - JSON logging with request tracing and correlation IDs
 - ✅ **Environment Configuration** - Flexible config with validation and structured logging
 - ✅ **CORS Support** - Configurable cross-origin resource sharing
+- ✅ **Rate Limiting** - Token bucket rate limiter (10 req/sec, burst 20)
+- ✅ **Input Validation** - Struct validation with go-playground/validator
 - ✅ **Security Hardened** - Request size limits, timeouts, and panic recovery
 - ✅ **Database Migrations** - Schema versioning with golang-migrate
 - ✅ **Docker Support** - Containerized development environment
@@ -99,7 +101,6 @@ boiler-go/
 │   ├── config/              # Environment configuration with structured logging
 │   ├── db/                  # Database connection (context-aware) and sqlc queries
 │   ├── handler/             # HTTP request handlers
-│   ├── handler/             # HTTP request handlers
 │   ├── middleware/          # HTTP middleware (logging, CORS, recovery)
 │   ├── queue/               # Shared queue names and priority configuration
 │   ├── scheduler/           # Job scheduling client (Asynq wrapper)
@@ -118,7 +119,7 @@ boiler-go/
 | `internal/config` | Environment parsing and validation | `Load(logg)`, `MustLoad()`, `Config` struct |
 | `internal/db` | Thread-safe database pool | `Open(ctx, cfg)`, `Get()`, `Close()` |
 | `internal/handler` | HTTP handlers | `HealthHandler`, `WorkerHandler` |
-| `internal/middleware` | Echo middleware | `RequestLogger()` |
+| `internal/middleware` | HTTP middleware | `RequestLogger()`, `RateLimiter()` |
 | `internal/queue` | Queue configuration | `Names()`, `Priorities()` |
 | `internal/scheduler` | Task enqueueing | `Client.Enqueue()`, `Client.EnqueueWithID()` |
 | `internal/tasks` | Task type constants | `TypeWorkerPing` |
@@ -228,9 +229,10 @@ Health check completion is logged at `Info` level for operational visibility.
 
 ### Core Backend
 
-- **[Echo](https://github.com/labstack/echo)** - High performance HTTP router and middleware
+- **[Chi](https://github.com/go-chi/chi)** - Lightweight, idiomatic and composable HTTP router
 - **[pgx/v5](https://github.com/jackc/pgx)** - PostgreSQL driver
 - **[sqlc](https://sqlc.dev/)** - Type-safe SQL code generation
+- **[go-playground/validator](https://github.com/go-playground/validator)** - Struct validation
 
 ### Background Jobs & Caching
 
@@ -274,6 +276,14 @@ This boilerplate includes several production-ready features:
 - Automatic cleanup on shutdown via graceful shutdown with timeout handling
 - Memory leak prevention
 
+### Rate Limiting
+
+IP-based token bucket rate limiter is applied globally:
+- **Rate**: 10 requests per second
+- **Burst**: 20 requests
+- **Key**: Client IP (supports X-Forwarded-For, X-Real-IP headers)
+- **Response**: HTTP 429 with JSON error when limit exceeded
+
 ### Monitoring
 
 - Health check endpoints for all services
@@ -315,7 +325,12 @@ Queue names are sourced from `internal/queue` package for consistency with the w
 
 #### Worker Ping
 
-Enqueues a test task to verify worker is processing jobs. The request ID is propagated to the worker for end-to-end tracing:
+Enqueues a test task to verify worker is processing jobs. The request ID is propagated to the worker for end-to-end tracing.
+
+**Request Validation:**
+- `message` field: optional, max 500 characters
+
+**Example Requests:**
 
 ```bash
 # With custom message and request ID
@@ -341,6 +356,24 @@ Response:
 ```
 
 Worker logs will include the original `request_id` for correlation.
+
+**Validation Error Response:**
+
+```json
+{
+  "error": "validation failed",
+  "details": ["Message exceeds maximum length"]
+}
+```
+
+**Rate Limit Error Response:**
+
+```json
+{
+  "error": "rate limit exceeded",
+  "message": "too many requests"
+}
+```
 
 ---
 
