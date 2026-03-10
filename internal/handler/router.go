@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"time"
 
 	"boiler-go/internal/config"
 	custommiddleware "boiler-go/internal/middleware"
@@ -10,6 +11,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
+	"github.com/go-chi/httprate"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
@@ -29,7 +31,14 @@ func NewRouter(log zerolog.Logger, cfg *config.Config, db *pgxpool.Pool, redis *
 	}))
 	r.Use(custommiddleware.RequestLogger(log))
 	// Rate limiter: 10 requests per second with burst of 20
-	r.Use(custommiddleware.RateLimiter(10, 20))
+	r.Use(httprate.Limit(10, time.Second,
+		httprate.WithKeyByIP(),
+		httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusTooManyRequests)
+			w.Write([]byte(`{"error":"rate limit exceeded","message":"too many requests"}`))
+		}),
+	))
 
 	health := NewHealthHandler(db, redis, cfg.HealthCheckTimeout)
 	worker := NewWorkerHandler(scheduler, db, redis)
