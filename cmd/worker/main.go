@@ -19,31 +19,12 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// newLogger creates a logger based on configuration.
-func newLogger(cfg *config.Config) (zerolog.Logger, func() error) {
-	switch cfg.LogOutput {
-	case "file", "both":
-		filePath := cfg.LogFile
-		if filePath == "" {
-			filePath = "logs/worker.log"
-		}
-		logg, cleanup, err := logger.NewWithFile(filePath, cfg.LogOutput == "both", cfg.LogLevel)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to create logger: %v\n", err)
-			os.Exit(1)
-		}
-		return logg, cleanup
-	default:
-		return logger.NewProduction(cfg.LogLevel), func() error { return nil }
-	}
-}
-
 func main() {
 	// Load config first with basic logger
 	cfg := config.Load(logger.New())
 
 	// Create logger based on configuration
-	logg, logCleanup := newLogger(cfg)
+	logg, logCleanup := logger.NewLogger(cfg, "logs/worker.log")
 	if logCleanup != nil {
 		defer logCleanup()
 	}
@@ -71,7 +52,7 @@ func main() {
 	srv := asynq.NewServer(
 		redisOpt,
 		asynq.Config{
-			Concurrency: 10, // worker concurrency
+			Concurrency: cfg.WorkerConcurrency,
 			// queue priorities (higher weight = higher priority)
 			Queues: queue.Priorities(),
 			// StrictPriority: true, // uncomment to always process higher priority queues first

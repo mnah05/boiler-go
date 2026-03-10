@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 
+	"boiler-go/internal/config"
+
 	"github.com/rs/zerolog"
 )
 
@@ -15,6 +17,29 @@ var (
 	global     zerolog.Logger
 	globalOnce sync.Once
 )
+
+// NewLogger creates a logger based on configuration.
+// Simple rules:
+//   - Production (LOG_OUTPUT=stdout): JSON to stdout
+//   - Development: Pretty console output
+//   - File logging: Write to file (+ optionally console)
+func NewLogger(cfg *config.Config, defaultFile string) (zerolog.Logger, func() error) {
+	switch cfg.LogOutput {
+	case "file", "both":
+		filePath := cfg.LogFile
+		if filePath == "" {
+			filePath = defaultFile
+		}
+		logg, cleanup, err := NewWithFile(filePath, cfg.LogOutput == "both", cfg.LogLevel)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to create logger: %v\n", err)
+			os.Exit(1)
+		}
+		return logg, cleanup
+	default:
+		return NewProduction(cfg.LogLevel), func() error { return nil }
+	}
+}
 
 // ParseLevel converts string to zerolog level.
 func ParseLevel(level string) zerolog.Level {

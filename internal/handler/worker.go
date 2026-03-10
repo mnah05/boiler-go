@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"boiler-go/internal/queue"
 	"boiler-go/internal/scheduler"
 	"boiler-go/internal/tasks"
+	"boiler-go/internal/validator"
 	"boiler-go/pkg/logger"
 
 	"github.com/go-chi/chi/v5/middleware"
@@ -32,7 +34,7 @@ func NewWorkerHandler(scheduler *scheduler.Client, db *pgxpool.Pool, redis *redi
 }
 
 type PingRequest struct {
-	Message string `json:"message,omitempty"`
+	Message string `json:"message,omitempty" validate:"max=500"`
 }
 
 type PingResponse struct {
@@ -73,6 +75,19 @@ func (h *WorkerHandler) Ping(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+
+		if err := validator.ValidateStruct(&body); err != nil {
+			log.Error().Err(err).Msg("validation failed")
+			errors := validator.GetValidationErrors(err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"error":   "validation failed",
+				"details": errors,
+			})
+			return
+		}
+
 		payloadMsg = body.Message
 	}
 
@@ -130,10 +145,41 @@ func (h *WorkerHandler) Ping(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *WorkerHandler) Status(w http.ResponseWriter, r *http.Request) {
+	log := logger.FromChiContext(r.Context())
+	requestID := middleware.GetReqID(r.Context())
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	status := map[string]string{
+		"redis":    "unknown",
+		"database": "unknown",
+	}
+	overall := http.StatusOK
+
+	if err := h.redis.Ping(ctx).Err(); err != nil {
+		log.Error().Err(err).Msg("redis health check failed")
+		status["redis"] = "disconnected"
+		overall = http.StatusServiceUnavailable
+	} else {
+		status["redis"] = "connected"
+	}
+
+	if err := h.db.Ping(ctx); err != nil {
+		log.Error().Err(err).Msg("database health check failed")
+		status["database"] = "disconnected"
+		overall = http.StatusServiceUnavailable
+	} else {
+		status["database"] = "connected"
+	}
+
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(overall)
 	json.NewEncoder(w).Encode(map[string]any{
-		"scheduler": "connected",
-		"queues":    queue.Names(),
-		"note":      "Use POST /worker/ping to test task processing",
+		"request_id": requestID,
+		"redis":      status["redis"],
+		"database":   status["database"],
+		"queues":     queue.Names(),
+		"note":       "Use POST /worker/ping to test task processing",
 	})
 }

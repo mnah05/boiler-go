@@ -28,6 +28,7 @@ func NewRouter(log zerolog.Logger, cfg *config.Config, db *pgxpool.Pool, redis *
 		MaxAge:         300,
 	}))
 	r.Use(custommiddleware.RequestLogger(log))
+	r.Use(custommiddleware.NewDefaultRateLimiter())
 
 	health := NewHealthHandler(db, redis, cfg.HealthCheckTimeout)
 	worker := NewWorkerHandler(scheduler, db, redis)

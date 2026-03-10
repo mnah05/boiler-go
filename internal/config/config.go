@@ -24,6 +24,9 @@ type Config struct {
 	RedisPassword string `env:"REDIS_PASSWORD"`
 	RedisDB       int    `env:"REDIS_DB" envDefault:"0"`
 
+	// worker
+	WorkerConcurrency int `env:"WORKER_CONCURRENCY" envDefault:"10"`
+
 	// timeouts
 	HealthCheckTimeout    time.Duration `env:"HEALTH_CHECK_TIMEOUT" envDefault:"2s"`
 	APIShutdownTimeout    time.Duration `env:"API_SHUTDOWN_TIMEOUT" envDefault:"10s"`
@@ -85,6 +88,9 @@ func Load(logg zerolog.Logger) *Config {
 		}
 		if c.WorkerShutdownTimeout <= 0 {
 			logg.Fatal().Msg("WORKER_SHUTDOWN_TIMEOUT must be positive")
+		}
+		if c.WorkerConcurrency <= 0 {
+			logg.Fatal().Msg("WORKER_CONCURRENCY must be positive")
 		}
 
 		// Validate LOG_OUTPUT

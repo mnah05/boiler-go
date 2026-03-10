@@ -17,38 +17,14 @@ import (
 
 	"github.com/hibiken/asynq"
 	"github.com/redis/go-redis/v9"
-	"github.com/rs/zerolog"
 )
-
-// newLogger creates a logger based on configuration.
-// Simple rules:
-//   - Production (LOG_OUTPUT=stdout): JSON to stdout
-//   - Development: Pretty console output
-//   - File logging: Write to file (+ optionally console)
-func newLogger(cfg *config.Config) (zerolog.Logger, func() error) {
-	switch cfg.LogOutput {
-	case "file", "both":
-		filePath := cfg.LogFile
-		if filePath == "" {
-			filePath = "logs/api.log"
-		}
-		logg, cleanup, err := logger.NewWithFile(filePath, cfg.LogOutput == "both", cfg.LogLevel)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to create logger: %v\n", err)
-			os.Exit(1)
-		}
-		return logg, cleanup
-	default:
-		return logger.NewProduction(cfg.LogLevel), func() error { return nil }
-	}
-}
 
 func main() {
 	// Load config first with basic logger
 	cfg := config.Load(logger.New())
 
 	// Create logger based on configuration
-	logg, logCleanup := newLogger(cfg)
+	logg, logCleanup := logger.NewLogger(cfg, "logs/api.log")
 	if logCleanup != nil {
 		defer logCleanup()
 	}
@@ -61,7 +37,6 @@ func main() {
 		logg.Fatal().Err(err).Msg("failed to initialize database")
 	}
 	logg.Info().Msg("database connected")
-	defer db.Close()
 
 	pool := db.Get()
 	if pool == nil {
@@ -86,7 +61,6 @@ func main() {
 		DB:       cfg.RedisDB,
 	})
 	logg.Info().Msg("scheduler client initialized")
-	defer schedulerClient.Close()
 
 	router := handler.NewRouter(logg, cfg, pool, rdb, schedulerClient)
 
@@ -134,17 +108,20 @@ func main() {
 	}
 
 	// Close resources in reverse order of initialization:
-	// 5. Redis (last initialized, first closed)
+	// 1. Scheduler client (must close before Redis since it uses Redis connection)
+	if err := schedulerClient.Close(); err != nil {
+		logg.Error().Err(err).Msg("scheduler client close failed")
+	}
+	logg.Info().Msg("scheduler client closed")
+
+	// 2. Redis
 	if err := rdb.Close(); err != nil {
 		logg.Error().Err(err).Msg("redis close failed")
 	}
 	logg.Info().Msg("redis disconnected")
 
-	// 4. Scheduler client
-	// (closed via defer, happens after this function returns)
-
-	// 3. Database
-	// (closed via defer, happens after this function returns)
+	// 3. Database (defer handles this, but explicitly close here for clarity)
+	db.Close()
 
 	logg.Info().Msg("server stopped cleanly")
 }
