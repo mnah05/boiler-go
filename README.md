@@ -305,8 +305,24 @@ Returns the status of database and Redis connections with response duration in m
 ### Worker Management
 
 ```
-GET /worker/status
+GET  /worker/health
+GET  /worker/status
 POST /worker/ping
+```
+
+#### Worker Health
+
+Returns the status of database and Redis connections with response duration in milliseconds. This endpoint is safe for frequent polling by load balancers.
+
+```json
+{
+  "status": {
+    "database": "up",
+    "redis": "up"
+  },
+  "checked": "2024-02-21T20:41:00Z",
+  "duration": 5
+}
 ```
 
 #### Worker Status

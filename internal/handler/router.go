@@ -30,7 +30,6 @@ func NewRouter(log zerolog.Logger, cfg *config.Config, db *pgxpool.Pool, redis *
 		MaxAge:         300,
 	}))
 	r.Use(custommiddleware.RequestLogger(log))
-	// Rate limiter: 10 requests per second with burst of 20
 	r.Use(httprate.Limit(10, time.Second,
 		httprate.WithKeyByIP(),
 		httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
@@ -46,6 +45,7 @@ func NewRouter(log zerolog.Logger, cfg *config.Config, db *pgxpool.Pool, redis *
 	r.Get("/health", health.Check)
 
 	r.Route("/worker", func(r chi.Router) {
+		r.Get("/health", worker.Health)
 		r.Get("/status", worker.Status)
 		r.Post("/ping", worker.Ping)
 	})

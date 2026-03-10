@@ -183,3 +183,54 @@ func (h *WorkerHandler) Status(w http.ResponseWriter, r *http.Request) {
 		"note":       "Use POST /worker/ping to test task processing",
 	})
 }
+
+type HealthResponse struct {
+	Status   map[string]string `json:"status"`
+	Checked  time.Time         `json:"checked"`
+	Duration int64             `json:"duration"`
+}
+
+func (h *WorkerHandler) Health(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	log := logger.FromChiContext(r.Context())
+
+	status := map[string]string{
+		"database": "up",
+		"redis":    "up",
+	}
+	overall := http.StatusOK
+
+	if err := h.db.Ping(ctx); err != nil {
+		log.Error().Err(err).Msg("database health check failed")
+		status["database"] = "down"
+		overall = http.StatusServiceUnavailable
+	}
+
+	if err := h.redis.Ping(ctx).Err(); err != nil {
+		log.Error().Err(err).Msg("redis health check failed")
+		status["redis"] = "down"
+		overall = http.StatusServiceUnavailable
+	}
+
+	duration := time.Since(start)
+
+	response := HealthResponse{
+		Status:   status,
+		Checked:  time.Now().UTC(),
+		Duration: duration.Milliseconds(),
+	}
+
+	log.Info().
+		Dur("duration", duration).
+		Str("database", status["database"]).
+		Str("redis", status["redis"]).
+		Msg("worker health check completed")
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(overall)
+	json.NewEncoder(w).Encode(response)
+}
