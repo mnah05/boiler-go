@@ -14,7 +14,9 @@ func FromChiContext(ctx context.Context) zerolog.Logger {
 	if log, ok := ctx.Value(chiLoggerKey).(zerolog.Logger); ok {
 		return log
 	}
-	return Global()
+	g := Global()
+	g.Debug().Msg("no logger in context, falling back to global logger")
+	return g
 }
 
 func WithChiContext(ctx context.Context, log zerolog.Logger) context.Context {

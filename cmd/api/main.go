@@ -112,6 +112,7 @@ func main() {
 	logg.Info().Msg("redis disconnected")
 
 	db.Close()
+	logg.Info().Msg("database disconnected")
 
 	logg.Info().Msg("server stopped cleanly")
 }

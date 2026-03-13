@@ -54,7 +54,6 @@ func main() {
 
 			RetryDelayFunc: func(n int, e error, t *asynq.Task) time.Duration {
 				return time.Duration(1<<uint(n)) * time.Second
-				return time.Duration(1<<uint(n)) * time.Second
 			},
 
 			ErrorHandler: asynq.ErrorHandlerFunc(func(ctx context.Context, task *asynq.Task, err error) {
