@@ -15,8 +15,6 @@ var (
 	mu   sync.RWMutex
 )
 
-// Open initializes the database pool with the provided context for timeout control.
-// The caller should provide a context with appropriate timeout for connection establishment.
 func Open(ctx context.Context, cfg *config.Config) error {
 	mu.Lock()
 	defer mu.Unlock()
@@ -49,9 +47,6 @@ func Open(ctx context.Context, cfg *config.Config) error {
 	return nil
 }
 
-// Get returns the database pool. Returns nil if not initialized.
-// The returned pool is safe for concurrent use by multiple goroutines.
-// However, callers should not hold the returned pool across shutdown.
 func Get() *pgxpool.Pool {
 	mu.RLock()
 	defer mu.RUnlock()

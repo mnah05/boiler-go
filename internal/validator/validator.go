@@ -12,7 +12,7 @@ func init() {
 	validate = validator.New()
 }
 
-func ValidateStruct(s interface{}) error {
+func ValidateStruct(s any) error {
 	return validate.Struct(s)
 }
 

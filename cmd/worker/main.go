@@ -20,16 +20,13 @@ import (
 )
 
 func main() {
-	// Load config first with basic logger
 	cfg := config.Load(logger.New())
 
-	// Create logger based on configuration
 	logg, logCleanup := logger.NewLogger(cfg, "logs/worker.log")
 	if logCleanup != nil {
 		defer logCleanup()
 	}
 
-	// Initialize database pool with timeout context
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := db.Open(ctx, cfg); err != nil {
@@ -53,13 +50,10 @@ func main() {
 		redisOpt,
 		asynq.Config{
 			Concurrency: cfg.WorkerConcurrency,
-			// queue priorities (higher weight = higher priority)
-			Queues: queue.Priorities(),
-			// StrictPriority: true, // uncomment to always process higher priority queues first
+			Queues:      queue.Priorities(),
 
-			// Exponential backoff retry strategy
 			RetryDelayFunc: func(n int, e error, t *asynq.Task) time.Duration {
-				// 1s, 2s, 4s, 8s, 16s...
+				return time.Duration(1<<uint(n)) * time.Second
 				return time.Duration(1<<uint(n)) * time.Second
 			},
 
@@ -79,17 +73,13 @@ func main() {
 
 	mux := asynq.NewServeMux()
 
-	// Add logging middleware
 	mux.Use(loggingMiddleware(logg))
 
-	// worker ping handler - used by API to verify worker is alive
 	mux.HandleFunc(tasks.TypeWorkerPing, func(ctx context.Context, t *asynq.Task) error {
-		// Parse payload for correlation ID
 		var payload tasks.PingTaskPayload
 		logEvent := logg.Info()
 
 		if err := json.Unmarshal(t.Payload(), &payload); err != nil {
-			// Fallback to raw payload if parsing fails
 			logEvent.Str("payload_raw", string(t.Payload()))
 		} else {
 			logEvent.Str("payload", payload.Message)
@@ -113,7 +103,6 @@ func main() {
 		}
 	}()
 
-	// Setup signal handling
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
@@ -126,15 +115,12 @@ func main() {
 
 	logg.Info().Msg("shutting down worker...")
 
-	// Stop accepting new tasks
 	srv.Stop()
 	logg.Info().Msg("worker stopped accepting new tasks")
 
-	// Shutdown with timeout enforcement for in-flight tasks
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.WorkerShutdownTimeout)
 	defer cancel()
 
-	// Run srv.Shutdown() in a goroutine since it blocks until all in-flight tasks complete
 	done := make(chan struct{})
 	go func() {
 		srv.Shutdown()
@@ -148,7 +134,6 @@ func main() {
 		logg.Warn().Msg("worker shutdown timed out, forcing exit")
 	}
 
-	// Explicit logger cleanup on shutdown (handles timeout case)
 	if logCleanup != nil {
 		logCleanup()
 	}
@@ -156,7 +141,6 @@ func main() {
 	logg.Info().Msg("worker stopped cleanly")
 }
 
-// loggingMiddleware logs task execution duration and success/failure
 func loggingMiddleware(logg zerolog.Logger) asynq.MiddlewareFunc {
 	return func(next asynq.Handler) asynq.Handler {
 		return asynq.HandlerFunc(func(ctx context.Context, task *asynq.Task) error {

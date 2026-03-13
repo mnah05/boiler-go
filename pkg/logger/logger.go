@@ -18,11 +18,6 @@ var (
 	globalOnce sync.Once
 )
 
-// NewLogger creates a logger based on configuration.
-// Simple rules:
-//   - Production (LOG_OUTPUT=stdout): JSON to stdout
-//   - Development: Pretty console output
-//   - File logging: Write to file (+ optionally console)
 func NewLogger(cfg *config.Config, defaultFile string) (zerolog.Logger, func() error) {
 	switch cfg.LogOutput {
 	case "file", "both":
@@ -41,7 +36,6 @@ func NewLogger(cfg *config.Config, defaultFile string) (zerolog.Logger, func() e
 	}
 }
 
-// ParseLevel converts string to zerolog level.
 func ParseLevel(level string) zerolog.Level {
 	switch strings.ToLower(level) {
 	case "debug":
@@ -57,7 +51,6 @@ func ParseLevel(level string) zerolog.Level {
 	}
 }
 
-// New creates a simple stdout logger (console format for dev).
 func New() zerolog.Logger {
 	return zerolog.New(zerolog.ConsoleWriter{
 		Out:        os.Stdout,
@@ -65,23 +58,16 @@ func New() zerolog.Logger {
 	}).With().Timestamp().Logger()
 }
 
-// NewProduction creates a production logger (json to stdout).
-// This is what you use in production.
 func NewProduction(level string) zerolog.Logger {
 	return zerolog.New(os.Stdout).
 		With().Timestamp().Logger().
 		Level(ParseLevel(level))
 }
 
-// NewWithFile creates a logger with file output.
-// filePath: where to write logs (e.g., "logs/app.log")
-// console: also print to stdout?
-// Returns the logger and a cleanup function that should be called on shutdown.
 func NewWithFile(filePath string, console bool, level string) (zerolog.Logger, func() error, error) {
 	var writers []io.Writer
 	var file *os.File
 
-	// Console output (pretty)
 	if console {
 		writers = append(writers, zerolog.ConsoleWriter{
 			Out:        os.Stdout,
@@ -89,7 +75,6 @@ func NewWithFile(filePath string, console bool, level string) (zerolog.Logger, f
 		})
 	}
 
-	// File output (json)
 	if filePath != "" {
 		dir := filepath.Dir(filePath)
 		if dir != "" && dir != "." {
@@ -125,7 +110,6 @@ func NewWithFile(filePath string, console bool, level string) (zerolog.Logger, f
 	return logger, cleanup, nil
 }
 
-// Global returns a fallback logger.
 func Global() zerolog.Logger {
 	globalOnce.Do(func() {
 		global = New()

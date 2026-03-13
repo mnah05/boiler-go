@@ -20,17 +20,14 @@ import (
 )
 
 func main() {
-	// Load config first with basic logger
 	cfg := config.Load(logger.New())
 
-	// Create logger based on configuration
 	logg, logCleanup := logger.NewLogger(cfg, "logs/api.log")
 	if logCleanup != nil {
 		defer logCleanup()
 	}
 	ctx := context.Background()
 
-	// Initialize database pool with timeout context
 	dbCtx, dbCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer dbCancel()
 	if err := db.Open(dbCtx, cfg); err != nil {
@@ -54,7 +51,6 @@ func main() {
 	}
 	logg.Info().Msg("redis connected")
 
-	// Initialize scheduler client for worker task enqueueing
 	schedulerClient := scheduler.NewClient(asynq.RedisClientOpt{
 		Addr:     cfg.RedisAddr,
 		Password: cfg.RedisPassword,
@@ -84,7 +80,6 @@ func main() {
 		}
 	}()
 
-	// Setup signal handling
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
@@ -97,7 +92,6 @@ func main() {
 
 	logg.Info().Msg("shutting down server...")
 
-	// Graceful shutdown with timeout
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.APIShutdownTimeout)
 	defer cancel()
 
@@ -107,20 +101,16 @@ func main() {
 		logg.Info().Msg("server shutdown completed gracefully")
 	}
 
-	// Close resources in reverse order of initialization:
-	// 1. Scheduler client (must close before Redis since it uses Redis connection)
 	if err := schedulerClient.Close(); err != nil {
 		logg.Error().Err(err).Msg("scheduler client close failed")
 	}
 	logg.Info().Msg("scheduler client closed")
 
-	// 2. Redis
 	if err := rdb.Close(); err != nil {
 		logg.Error().Err(err).Msg("redis close failed")
 	}
 	logg.Info().Msg("redis disconnected")
 
-	// 3. Database (defer handles this, but explicitly close here for clarity)
 	db.Close()
 
 	logg.Info().Msg("server stopped cleanly")
