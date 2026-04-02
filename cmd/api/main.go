@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"boiler-go/internal/config"
-	"boiler-go/internal/db"
 	"boiler-go/internal/handler"
+	"boiler-go/internal/repository/pool"
 	"boiler-go/internal/scheduler"
 	"boiler-go/pkg/logger"
 
@@ -30,13 +30,13 @@ func main() {
 
 	dbCtx, dbCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer dbCancel()
-	if err := db.Open(dbCtx, cfg); err != nil {
+	if err := pool.Open(dbCtx, cfg); err != nil {
 		logg.Fatal().Err(err).Msg("failed to initialize database")
 	}
 	logg.Info().Msg("database connected")
 
-	pool := db.Get()
-	if pool == nil {
+	dbPool := pool.Get()
+	if dbPool == nil {
 		logg.Fatal().Msg("database pool is nil")
 	}
 
@@ -58,7 +58,7 @@ func main() {
 	})
 	logg.Info().Msg("scheduler client initialized")
 
-	router := handler.NewRouter(logg, cfg, pool, rdb, schedulerClient)
+	router := handler.NewRouter(logg, cfg, dbPool, rdb, schedulerClient)
 
 	server := &http.Server{
 		Addr:           ":" + cfg.AppPort,
@@ -111,7 +111,7 @@ func main() {
 	}
 	logg.Info().Msg("redis disconnected")
 
-	db.Close()
+	pool.Close()
 	logg.Info().Msg("database disconnected")
 
 	logg.Info().Msg("server stopped cleanly")

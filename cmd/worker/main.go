@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"boiler-go/internal/config"
-	"boiler-go/internal/db"
 	"boiler-go/internal/queue"
+	"boiler-go/internal/repository/pool"
 	"boiler-go/internal/tasks"
 	"boiler-go/pkg/logger"
 
@@ -29,14 +29,14 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := db.Open(ctx, cfg); err != nil {
+	if err := pool.Open(ctx, cfg); err != nil {
 		logg.Fatal().Err(err).Msg("failed to initialize database")
 	}
 	logg.Info().Msg("database connected")
-	defer db.Close()
+	defer pool.Close()
 
-	pool := db.Get()
-	if pool == nil {
+	dbPool := pool.Get()
+	if dbPool == nil {
 		logg.Fatal().Msg("database pool is nil")
 	}
 

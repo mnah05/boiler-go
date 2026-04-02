@@ -41,6 +41,7 @@ func NewRouter(log zerolog.Logger, cfg *config.Config, db *pgxpool.Pool, redis *
 
 	health := NewHealthHandler(db, redis, cfg.HealthCheckTimeout)
 	worker := NewWorkerHandler(scheduler, db, redis)
+	repoTest := NewRepoTestHandler(db, log)
 
 	r.Get("/health", health.Check)
 
@@ -48,6 +49,12 @@ func NewRouter(log zerolog.Logger, cfg *config.Config, db *pgxpool.Pool, redis *
 		r.Get("/health", worker.Health)
 		r.Get("/status", worker.Status)
 		r.Post("/ping", worker.Ping)
+	})
+
+	r.Route("/repo-test", func(r chi.Router) {
+		r.Post("/users", repoTest.CreateUser)
+		r.Get("/users", repoTest.ListUsers)
+		r.Get("/users/get", repoTest.GetUser)
 	})
 
 	return r

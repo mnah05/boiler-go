@@ -1,4 +1,4 @@
-package db
+package pool
 
 import (
 	"boiler-go/internal/config"
