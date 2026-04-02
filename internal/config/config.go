@@ -4,12 +4,10 @@ import (
 	"fmt"
 	"net/url"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/caarlos0/env/v11"
 	"github.com/joho/godotenv"
-	"github.com/rs/zerolog"
 )
 
 type Config struct {
@@ -30,64 +28,60 @@ type Config struct {
 	LogOutput string `env:"LOG_OUTPUT" envDefault:"stdout"`
 	LogFile   string `env:"LOG_FILE"`
 	LogLevel  string `env:"LOG_LEVEL" envDefault:"info"`
+
+	CORSAllowedOrigins []string `env:"CORS_ALLOWED_ORIGINS" envSeparator:"," envDefault:"http://localhost:3000"`
 }
 
-var (
-	cfg  *Config
-	once sync.Once
-)
+func Load() (*Config, error) {
+	_ = godotenv.Load()
 
-func Load(logg zerolog.Logger) *Config {
-	once.Do(func() {
-		if err := godotenv.Load(); err != nil {
-			logg.Info().Msg("no .env file found (using system environment)")
-		}
+	var c Config
+	if err := env.Parse(&c); err != nil {
+		return nil, fmt.Errorf("parse env: %w", err)
+	}
 
-		c := Config{}
+	if err := c.validate(); err != nil {
+		return nil, err
+	}
 
-		if err := env.Parse(&c); err != nil {
-			logg.Fatal().Err(err).Msg("failed to load config")
-		}
+	return &c, nil
+}
 
-		if c.DatabaseURL == "" {
-			logg.Fatal().Msg("DATABASE_URL is required")
-		}
-		if err := validateDatabaseURL(c.DatabaseURL); err != nil {
-			logg.Fatal().Err(err).Msg("invalid DATABASE_URL")
-		}
-		if c.RedisAddr == "" {
-			logg.Fatal().Msg("REDIS_ADDR is required")
-		}
-		if c.RedisDB < 0 || c.RedisDB > 15 {
-			logg.Fatal().Msg("REDIS_DB must be between 0 and 15")
-		}
-		if err := validatePort(c.AppPort); err != nil {
-			logg.Fatal().Err(err).Msg("invalid APP_PORT")
-		}
-		if c.HealthCheckTimeout <= 0 {
-			logg.Fatal().Msg("HEALTH_CHECK_TIMEOUT must be positive")
-		}
-		if c.APIShutdownTimeout <= 0 {
-			logg.Fatal().Msg("API_SHUTDOWN_TIMEOUT must be positive")
-		}
-		if c.WorkerShutdownTimeout <= 0 {
-			logg.Fatal().Msg("WORKER_SHUTDOWN_TIMEOUT must be positive")
-		}
-		if c.WorkerConcurrency <= 0 {
-			logg.Fatal().Msg("WORKER_CONCURRENCY must be positive")
-		}
-
-		if c.LogOutput != "stdout" && c.LogOutput != "file" && c.LogOutput != "both" {
-			logg.Fatal().Msg("LOG_OUTPUT must be one of: stdout, file, both")
-		}
-		if (c.LogOutput == "file" || c.LogOutput == "both") && c.LogFile == "" {
-			logg.Fatal().Msg("LOG_FILE is required when LOG_OUTPUT is file or both")
-		}
-
-		cfg = &c
-	})
-
-	return cfg
+func (c *Config) validate() error {
+	if c.DatabaseURL == "" {
+		return fmt.Errorf("DATABASE_URL is required")
+	}
+	if err := validateDatabaseURL(c.DatabaseURL); err != nil {
+		return fmt.Errorf("invalid DATABASE_URL: %w", err)
+	}
+	if c.RedisAddr == "" {
+		return fmt.Errorf("REDIS_ADDR is required")
+	}
+	if c.RedisDB < 0 || c.RedisDB > 15 {
+		return fmt.Errorf("REDIS_DB must be between 0 and 15")
+	}
+	if err := validatePort(c.AppPort); err != nil {
+		return fmt.Errorf("invalid APP_PORT: %w", err)
+	}
+	if c.HealthCheckTimeout <= 0 {
+		return fmt.Errorf("HEALTH_CHECK_TIMEOUT must be positive")
+	}
+	if c.APIShutdownTimeout <= 0 {
+		return fmt.Errorf("API_SHUTDOWN_TIMEOUT must be positive")
+	}
+	if c.WorkerShutdownTimeout <= 0 {
+		return fmt.Errorf("WORKER_SHUTDOWN_TIMEOUT must be positive")
+	}
+	if c.WorkerConcurrency <= 0 {
+		return fmt.Errorf("WORKER_CONCURRENCY must be positive")
+	}
+	if c.LogOutput != "stdout" && c.LogOutput != "file" && c.LogOutput != "both" {
+		return fmt.Errorf("LOG_OUTPUT must be one of: stdout, file, both")
+	}
+	if (c.LogOutput == "file" || c.LogOutput == "both") && c.LogFile == "" {
+		return fmt.Errorf("LOG_FILE is required when LOG_OUTPUT is file or both")
+	}
+	return nil
 }
 
 func validatePort(port string) error {

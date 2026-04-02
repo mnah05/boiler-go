@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"time"
 
@@ -54,12 +53,6 @@ func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
 
 	duration := time.Since(start)
 
-	response := map[string]any{
-		"status":   status,
-		"checked":  time.Now().UTC(),
-		"duration": duration.Milliseconds(),
-	}
-
 	dbStatus := status["database"]
 	redisStatus := status["redis"]
 	log.Info().
@@ -68,7 +61,9 @@ func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
 		Str("redis", redisStatus).
 		Msg("health check completed")
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(overall)
-	json.NewEncoder(w).Encode(response)
+	WriteJSON(w, overall, map[string]any{
+		"status":   status,
+		"checked":  time.Now().UTC(),
+		"duration": duration.Milliseconds(),
+	})
 }

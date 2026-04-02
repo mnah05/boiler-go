@@ -17,6 +17,12 @@ type SuccessResponse struct {
 	Message string      `json:"message,omitempty"`
 }
 
+func WriteJSON(w http.ResponseWriter, statusCode int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(data)
+}
+
 func NewErrorResponse(w http.ResponseWriter, statusCode int, error string, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)

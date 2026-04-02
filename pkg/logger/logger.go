@@ -84,7 +84,7 @@ func NewWithFile(filePath string, console bool, level string) (zerolog.Logger, f
 		}
 
 		var err error
-		file, err = os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		file, err = os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 		if err != nil {
 			return zerolog.Logger{}, nil, fmt.Errorf("open log file: %w", err)
 		}

@@ -6,6 +6,7 @@ import (
 
 	"boiler-go/internal/repository/db"
 	"boiler-go/internal/repository/repo"
+	"boiler-go/internal/validator"
 	"boiler-go/pkg/logger"
 
 	"github.com/google/uuid"
@@ -27,8 +28,8 @@ func NewRepoTestHandler(pool *pgxpool.Pool, log zerolog.Logger) *RepoTestHandler
 }
 
 type CreateUserRequest struct {
-	Email string `json:"email"`
-	Name  string `json:"name"`
+	Email string `json:"email" validate:"required,email"`
+	Name  string `json:"name" validate:"required,min=1,max=255"`
 }
 
 type UserResponse struct {
@@ -45,8 +46,13 @@ func (h *RepoTestHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	var req CreateUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		log.Error().Err(err).Msg("failed to decode request")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		NewErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid request body")
+		return
+	}
+
+	if err := validator.ValidateStruct(&req); err != nil {
+		errors := validator.GetValidationErrors(err)
+		NewErrorResponseWithDetails(w, http.StatusBadRequest, "validation_error", "validation failed", errors)
 		return
 	}
 
@@ -56,22 +62,19 @@ func (h *RepoTestHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("failed to create user")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		NewErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to create user")
 		return
 	}
 
 	log.Info().Str("user_id", uuid.UUID(user.ID.Bytes[:]).String()).Msg("user created via repo")
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(UserResponse{
+	NewSuccessResponse(w, http.StatusCreated, UserResponse{
 		ID:        uuid.UUID(user.ID.Bytes[:]).String(),
 		Email:     user.Email,
 		Name:      user.Name,
 		CreatedAt: user.CreatedAt.Time.String(),
 		UpdatedAt: user.UpdatedAt.Time.String(),
-	})
+	}, "user created")
 }
 
 func (h *RepoTestHandler) GetUser(w http.ResponseWriter, r *http.Request) {
@@ -79,16 +82,14 @@ func (h *RepoTestHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 
 	userIDStr := r.URL.Query().Get("id")
 	if userIDStr == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "missing id parameter"})
+		NewErrorResponse(w, http.StatusBadRequest, "bad_request", "missing id parameter")
 		return
 	}
 
 	userUUID, err := uuid.Parse(userIDStr)
 	if err != nil {
 		log.Error().Err(err).Msg("invalid uuid")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "invalid uuid"})
+		NewErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid uuid format")
 		return
 	}
 
@@ -100,13 +101,11 @@ func (h *RepoTestHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 	user, err := h.userRepo.GetByID(r.Context(), pgUUID)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to get user")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "user not found"})
+		NewErrorResponse(w, http.StatusNotFound, "not_found", "user not found")
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(UserResponse{
+	WriteJSON(w, http.StatusOK, UserResponse{
 		ID:        uuid.UUID(user.ID.Bytes[:]).String(),
 		Email:     user.Email,
 		Name:      user.Name,
@@ -121,8 +120,7 @@ func (h *RepoTestHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	users, err := h.userRepo.List(r.Context(), 10)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to list users")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		NewErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to list users")
 		return
 	}
 
@@ -139,6 +137,5 @@ func (h *RepoTestHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 
 	log.Info().Int("count", len(users)).Msg("users listed via repo")
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	WriteJSON(w, http.StatusOK, response)
 }

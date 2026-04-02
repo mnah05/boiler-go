@@ -20,7 +20,12 @@ import (
 )
 
 func main() {
-	cfg := config.Load(logger.New())
+	bootLog := logger.New()
+
+	cfg, err := config.Load()
+	if err != nil {
+		bootLog.Fatal().Err(err).Msg("failed to load config")
+	}
 
 	logg, logCleanup := logger.NewLogger(cfg, "logs/worker.log")
 	if logCleanup != nil {
@@ -53,6 +58,9 @@ func main() {
 			Queues:      queue.Priorities(),
 
 			RetryDelayFunc: func(n int, e error, t *asynq.Task) time.Duration {
+				if n > 6 {
+					n = 6
+				}
 				return time.Duration(1<<uint(n)) * time.Second
 			},
 
@@ -117,8 +125,8 @@ func main() {
 	srv.Stop()
 	logg.Info().Msg("worker stopped accepting new tasks")
 
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.WorkerShutdownTimeout)
-	defer cancel()
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.WorkerShutdownTimeout)
+	defer shutdownCancel()
 
 	done := make(chan struct{})
 	go func() {
@@ -131,10 +139,6 @@ func main() {
 		logg.Info().Msg("worker shutdown completed gracefully")
 	case <-shutdownCtx.Done():
 		logg.Warn().Msg("worker shutdown timed out, forcing exit")
-	}
-
-	if logCleanup != nil {
-		logCleanup()
 	}
 
 	logg.Info().Msg("worker stopped cleanly")

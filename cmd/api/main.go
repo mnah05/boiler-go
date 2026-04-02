@@ -20,7 +20,12 @@ import (
 )
 
 func main() {
-	cfg := config.Load(logger.New())
+	bootLog := logger.New()
+
+	cfg, err := config.Load()
+	if err != nil {
+		bootLog.Fatal().Err(err).Msg("failed to load config")
+	}
 
 	logg, logCleanup := logger.NewLogger(cfg, "logs/api.log")
 	if logCleanup != nil {
@@ -41,12 +46,19 @@ func main() {
 	}
 
 	rdb := redis.NewClient(&redis.Options{
-		Addr:     cfg.RedisAddr,
-		Password: cfg.RedisPassword,
-		DB:       cfg.RedisDB,
+		Addr:         cfg.RedisAddr,
+		Password:     cfg.RedisPassword,
+		DB:           cfg.RedisDB,
+		PoolSize:     20,
+		MinIdleConns: 5,
+		DialTimeout:  5 * time.Second,
+		ReadTimeout:  3 * time.Second,
+		WriteTimeout: 3 * time.Second,
 	})
 
-	if err := rdb.Ping(ctx).Err(); err != nil {
+	redisCtx, redisCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer redisCancel()
+	if err := rdb.Ping(redisCtx).Err(); err != nil {
 		logg.Fatal().Err(err).Msg("redis connection failed")
 	}
 	logg.Info().Msg("redis connected")
@@ -66,7 +78,7 @@ func main() {
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   10 * time.Second,
 		IdleTimeout:    60 * time.Second,
-		MaxHeaderBytes: 1 << 20, // 1MB
+		MaxHeaderBytes: 1 << 20,
 	}
 
 	serverErrors := make(chan error, 1)

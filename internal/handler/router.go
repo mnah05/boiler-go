@@ -23,38 +23,41 @@ func NewRouter(log zerolog.Logger, cfg *config.Config, db *pgxpool.Pool, redis *
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
 	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins: []string{"*"},
+		AllowedOrigins: cfg.CORSAllowedOrigins,
 		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders: []string{"Accept", "Authorization", "Content-Type", "X-Request-ID"},
 		ExposedHeaders: []string{"Link", "X-Request-ID"},
 		MaxAge:         300,
 	}))
 	r.Use(custommiddleware.RequestLogger(log))
-	r.Use(httprate.Limit(10, time.Second,
-		httprate.WithKeyByIP(),
-		httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusTooManyRequests)
-			w.Write([]byte(`{"error":"rate limit exceeded","message":"too many requests"}`))
-		}),
-	))
+	r.Use(custommiddleware.MaxBodySize(1 << 20)) // 1MB global limit
 
+	// Health endpoints (excluded from rate limiting)
 	health := NewHealthHandler(db, redis, cfg.HealthCheckTimeout)
 	worker := NewWorkerHandler(scheduler, db, redis)
-	repoTest := NewRepoTestHandler(db, log)
-
 	r.Get("/health", health.Check)
+	r.Get("/worker/health", worker.Health)
 
-	r.Route("/worker", func(r chi.Router) {
-		r.Get("/health", worker.Health)
-		r.Get("/status", worker.Status)
-		r.Post("/ping", worker.Ping)
-	})
+	// Rate-limited API routes
+	r.Group(func(r chi.Router) {
+		r.Use(httprate.Limit(10, time.Second,
+			httprate.WithKeyByIP(),
+			httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
+				NewErrorResponse(w, http.StatusTooManyRequests, "rate_limit_exceeded", "too many requests")
+			}),
+		))
 
-	r.Route("/repo-test", func(r chi.Router) {
-		r.Post("/users", repoTest.CreateUser)
-		r.Get("/users", repoTest.ListUsers)
-		r.Get("/users/get", repoTest.GetUser)
+		r.Route("/worker", func(r chi.Router) {
+			r.Get("/status", worker.Status)
+			r.Post("/ping", worker.Ping)
+		})
+
+		repoTest := NewRepoTestHandler(db, log)
+		r.Route("/repo-test", func(r chi.Router) {
+			r.Post("/users", repoTest.CreateUser)
+			r.Get("/users", repoTest.ListUsers)
+			r.Get("/users/get", repoTest.GetUser)
+		})
 	})
 
 	return r
