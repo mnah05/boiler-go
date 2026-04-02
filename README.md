@@ -28,19 +28,23 @@ make worker
 
 ## 📋 Features
 
-- ✅ **Thread-Safe Database Pool** - Concurrent-safe PostgreSQL connection management
+- ✅ **Thread-Safe Database Pool** - Concurrent-safe PostgreSQL connection management with `pgx`
+- ✅ **Repository Pattern** - Clean data access layer with base repository, query logging, and transaction support
 - ✅ **Graceful Shutdown** - Shared utilities for proper resource cleanup and timeout handling
 - ✅ **Background Jobs** - Redis-based task processing with Asynq
 - ✅ **Worker Management** - API endpoints for worker status and ping testing
 - ✅ **Health Checks** - Lightweight service health monitoring with duration tracking
 - ✅ **Structured Logging** - JSON logging with request tracing and correlation IDs
-- ✅ **Environment Configuration** - Flexible config with validation and structured logging
-- ✅ **CORS Support** - Configurable cross-origin resource sharing
-- ✅ **Rate Limiting** - Token bucket rate limiter (10 req/sec, burst 20)
-- ✅ **Input Validation** - Struct validation with go-playground/validator
-- ✅ **Security Hardened** - Request size limits, timeouts, and panic recovery
+- ✅ **Environment Configuration** - Flexible config with validation (returns errors, no logger injection)
+- ✅ **CORS Support** - Configurable per-origin CORS (no wildcard)
+- ✅ **Rate Limiting** - Token bucket rate limiter (10 req/sec, burst 20) via `httprate`
+- ✅ **Request Size Limiting** - Global 1MB request body size limit
+- ✅ **Input Validation** - Struct validation with `go-playground/validator`
+- ✅ **Security Hardened** - Secure log permissions (0600), configurable CORS, health endpoints excluded from rate limiting
+- ✅ **Error Handling** - Standardized JSON error responses with HTTP status codes
 - ✅ **Database Migrations** - Schema versioning with golang-migrate
 - ✅ **Docker Support** - Containerized development environment
+- ✅ **Comprehensive Documentation** - Error handling strategy with retry policies
 
 ---
 
@@ -98,13 +102,17 @@ boiler-go/
 │   ├── api/                 # HTTP API server entry point
 │   └── worker/              # Background job processor entry point
 ├── internal/
-│   ├── config/              # Environment configuration with structured logging
-│   ├── db/                  # Database connection (context-aware) and sqlc queries
+│   ├── config/              # Environment configuration and validation
 │   ├── handler/             # HTTP request handlers
-│   ├── middleware/          # HTTP middleware (logging, CORS, recovery)
+│   ├── middleware/          # HTTP middleware (logging, CORS, body limiting)
 │   ├── queue/               # Shared queue names and priority configuration
+│   ├── repository/          # Data access layer
+│   │   ├── pool/            # Database connection pool
+│   │   ├── repo/            # Repository implementations with logging
+│   │   └── db/              # sqlc-generated database code
 │   ├── scheduler/           # Job scheduling client (Asynq wrapper)
-│   └── tasks/               # Shared task type constants
+│   ├── tasks/               # Shared task type constants
+│   └── validator/           # Input validation utilities
 ├── pkg/
 │   └── logger/              # Structured logging utilities with global fallback
 ├── migrations/              # Database migration files (golang-migrate)
@@ -116,14 +124,16 @@ boiler-go/
 
 | Package | Purpose | Key Types/Functions |
 |---------|---------|---------------------|
-| `internal/config` | Environment parsing and validation | `Load(logg)`, `MustLoad()`, `Config` struct |
-| `internal/db` | Thread-safe database pool | `Open(ctx, cfg)`, `Get()`, `Close()` |
-| `internal/handler` | HTTP handlers | `HealthHandler`, `WorkerHandler` |
-| `internal/middleware` | HTTP middleware | `RequestLogger()`, `RateLimiter()` |
+| `internal/config` | Environment parsing and validation | `Load()` → `(*Config, error)`, `Config` struct |
+| `internal/repository/pool` | Thread-safe database pool | `Open(ctx, cfg)`, `Get()`, `Close()` |
+| `internal/repository/repo` | Data access layer with logging | `BaseRepo`, `UserRepo`, `TxManager` |
+| `internal/handler` | HTTP request handlers | `HealthHandler`, `WorkerHandler`, `RepoTestHandler` |
+| `internal/middleware` | HTTP middleware | `RequestLogger()`, `MaxBodySize()` |
 | `internal/queue` | Queue configuration | `Names()`, `Priorities()` |
 | `internal/scheduler` | Task enqueueing | `Client.Enqueue()`, `Client.EnqueueWithID()` |
 | `internal/tasks` | Task type constants | `TypeWorkerPing` |
-| `pkg/logger` | Logging utilities | `New()`, `Global()`, `FromEchoContext()` |
+| `internal/validator` | Struct validation | `ValidateStruct()`, `GetValidationErrors()` |
+| `pkg/logger` | Logging utilities | `New()`, `Global()`, `FromChiContext()` |
 
 ---
 
@@ -143,15 +153,35 @@ REDIS_ADDR=localhost:6379
 REDIS_PASSWORD=
 REDIS_DB=0
 
+# Worker
+WORKER_CONCURRENCY=10
+
 # Timeouts
 HEALTH_CHECK_TIMEOUT=2s
 API_SHUTDOWN_TIMEOUT=10s
 WORKER_SHUTDOWN_TIMEOUT=30s
+
+# Logging
+LOG_OUTPUT=stdout        # Options: stdout, file, both
+LOG_FILE=logs/app.log    # Required when LOG_OUTPUT is file or both
+LOG_LEVEL=info           # Options: debug, info, warn, error
+
+# Security
+CORS_ALLOWED_ORIGINS=http://localhost:3000,https://example.com
 ```
+
+#### Security Configuration
+
+**CORS_ALLOWED_ORIGINS**: Comma-separated list of allowed origins. Never use `*` in production. Example:
+```bash
+CORS_ALLOWED_ORIGINS=http://localhost:3000,https://myapp.com
+```
+
+**LOG_OUTPUT & LOG_FILE**: When set to `file` or `both`, logs are written with `0600` permissions (owner read/write only) for security.
 
 ### Database Configuration
 
-The database pool is configured with sensible defaults:
+The database pool (`internal/repository/pool`) is configured with sensible defaults:
 
 - **Max Connections**: 15
 - **Min Connections**: 2
@@ -160,6 +190,27 @@ The database pool is configured with sensible defaults:
 - **Health Check Period**: 1 minute
 
 The pool initialization accepts a `context.Context` for timeout control during startup.
+
+### Repository Pattern
+
+The codebase implements a clean repository pattern with the following features:
+
+```go
+// Base repository with query logging
+baseRepo := repo.NewBaseRepo(pool, log)
+
+// Specific repositories
+userRepo := repo.NewUserRepo(pool, log)
+
+// Transaction support
+txManager := repo.NewTxManager(pool, log)
+err := txManager.Execute(ctx, func(q *db.Queries) error {
+    // Perform operations within transaction
+    return nil
+})
+```
+
+All database operations include automatic query logging with duration tracking.
 
 ---
 
@@ -200,8 +251,11 @@ make api
 # Start background worker
 make worker
 
-# Stop all services
-make dev-down
+# Stop services
+make stop-api        # Stop API server
+make stop-worker     # Stop worker process
+make stop            # Stop all local services
+make dev-down        # Stop Docker containers
 ```
 
 ---
@@ -253,7 +307,7 @@ This boilerplate includes several production-ready features:
 ### Thread Safety
 
 - Database pool uses `sync.RWMutex` for concurrent access
-- Configuration loading uses `sync.Once` for safe singleton pattern
+- Configuration returns errors for safe initialization (no singleton pattern)
 - All shared resources are properly synchronized
 
 ### Logging
@@ -278,11 +332,56 @@ This boilerplate includes several production-ready features:
 
 ### Rate Limiting
 
-IP-based token bucket rate limiter is applied globally:
+IP-based token bucket rate limiter via `go-chi/httprate`:
 - **Rate**: 10 requests per second
 - **Burst**: 20 requests
 - **Key**: Client IP (supports X-Forwarded-For, X-Real-IP headers)
+- **Excluded Endpoints**: `/health` and `/worker/health` (for monitoring)
 - **Response**: HTTP 429 with JSON error when limit exceeded
+
+### Request Size Limits
+
+Global 1MB request body size limit enforced via `internal/middleware.MaxBodySize()`:
+- Returns HTTP 413 (Request Entity Too Large) if exceeded
+- Applied to all routes except health checks
+- Prevents DoS attacks via large payloads
+
+### Error Handling
+
+Standardized error response format across all endpoints:
+
+```json
+{
+  "error": "error_code",
+  "message": "Human-readable description",
+  "details": ["optional", "field-level", "errors"]
+}
+```
+
+**HTTP Status Codes:**
+
+| Code | When to Use |
+|------|-------------|
+| 400  | Malformed JSON, missing required fields |
+| 401  | Missing or invalid authentication |
+| 403  | Authenticated but not authorized |
+| 404  | Resource not found |
+| 413  | Request body exceeds size limit |
+| 422  | Struct validation failures (with details) |
+| 429  | Rate limit exceeded |
+| 500  | Unexpected internal errors (generic message) |
+| 503  | Dependency unavailable (Redis, DB down) |
+
+**Validation Errors:**
+
+```json
+{
+  "error": "validation_failed",
+  "details": ["Email must be a valid email", "Name is required"]
+}
+```
+
+See [ERROR_HANDLING.md](ERROR_HANDLING.md) for complete documentation including retry policies and circuit breaker patterns.
 
 ### Monitoring
 
@@ -391,6 +490,47 @@ Worker logs will include the original `request_id` for correlation.
 }
 ```
 
+### Repository Test Endpoints
+
+Test endpoints demonstrating the repository pattern:
+
+```
+GET    /repo-test/users       # List users (limit: 10)
+POST   /repo-test/users       # Create user
+GET    /repo-test/users/get   # Get user by ID (query: id)
+```
+
+**Create User:**
+
+```bash
+curl -X POST http://localhost:8080/repo-test/users \
+  -H "Content-Type: application/json" \
+  -d '{"email": "user@example.com", "name": "John Doe"}'
+```
+
+Response:
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "email": "user@example.com",
+  "name": "John Doe",
+  "created_at": "2024-01-15 10:30:00 +0000 UTC",
+  "updated_at": "2024-01-15 10:30:00 +0000 UTC"
+}
+```
+
+**Get User:**
+
+```bash
+curl "http://localhost:8080/repo-test/users/get?id=550e8400-e29b-41d4-a716-446655440000"
+```
+
+**List Users:**
+
+```bash
+curl http://localhost:8080/repo-test/users
+```
+
 ---
 
 ## 🧪 Testing
@@ -457,15 +597,6 @@ defer cancel()
 if err := db.Open(ctx, cfg); err != nil {
     log.Fatal(err)
 }
-```
-
-### Logger Injection Pattern
-
-The configuration loader accepts a logger for structured logging during initialization:
-
-```go
-logg := logger.New()
-cfg := config.Load(logg)  // Uses structured logging, not stdlib log
 ```
 
 ### Graceful Shutdown Pattern
