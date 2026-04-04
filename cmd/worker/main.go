@@ -38,7 +38,10 @@ func main() {
 		logg.Fatal().Err(err).Msg("failed to initialize database")
 	}
 	logg.Info().Msg("database connected")
-	defer pool.Close()
+	defer func() {
+		pool.Close()
+		logg.Info().Msg("database disconnected")
+	}()
 
 	dbPool := pool.Get()
 	if dbPool == nil {
@@ -139,6 +142,9 @@ func main() {
 		logg.Info().Msg("worker shutdown completed gracefully")
 	case <-shutdownCtx.Done():
 		logg.Warn().Msg("worker shutdown timed out, forcing exit")
+		pool.Close()
+		logg.Info().Msg("database disconnected")
+		os.Exit(1)
 	}
 
 	logg.Info().Msg("worker stopped cleanly")

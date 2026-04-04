@@ -1,8 +1,12 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strconv"
+	"time"
 
 	"boiler-go/internal/repository/db"
 	"boiler-go/internal/repository/repo"
@@ -10,6 +14,7 @@ import (
 	"boiler-go/pkg/logger"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
@@ -56,12 +61,22 @@ func (h *RepoTestHandler) CreateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, err := h.userRepo.Create(r.Context(), db.CreateUserParams{
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	user, err := h.userRepo.Create(ctx, db.CreateUserParams{
 		Email: req.Email,
 		Name:  req.Name,
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("failed to create user")
+
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			NewErrorResponse(w, http.StatusConflict, "conflict", "email already exists")
+			return
+		}
+
 		NewErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to create user")
 		return
 	}
@@ -98,7 +113,10 @@ func (h *RepoTestHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 		Valid: true,
 	}
 
-	user, err := h.userRepo.GetByID(r.Context(), pgUUID)
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+
+	user, err := h.userRepo.GetByID(ctx, pgUUID)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to get user")
 		NewErrorResponse(w, http.StatusNotFound, "not_found", "user not found")
@@ -117,7 +135,20 @@ func (h *RepoTestHandler) GetUser(w http.ResponseWriter, r *http.Request) {
 func (h *RepoTestHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	log := logger.FromChiContext(r.Context())
 
-	users, err := h.userRepo.List(r.Context(), 10)
+	var limit int32 = 10
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		parsed, err := strconv.ParseInt(limitStr, 10, 32)
+		if err != nil || parsed <= 0 {
+			NewErrorResponse(w, http.StatusBadRequest, "bad_request", "limit must be a positive integer")
+			return
+		}
+		limit = int32(parsed)
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	users, err := h.userRepo.List(ctx, limit)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to list users")
 		NewErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to list users")

@@ -80,7 +80,10 @@ func (h *WorkerHandler) Ping(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	taskID, err := h.scheduler.EnqueueWithID(r.Context(), tasks.TypeWorkerPing, payloadBytes,
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	taskID, err := h.scheduler.EnqueueWithID(ctx, tasks.TypeWorkerPing, payloadBytes,
 		asynq.Queue(queue.QueueDefault),
 		asynq.MaxRetry(3),
 		asynq.Timeout(30*time.Second),

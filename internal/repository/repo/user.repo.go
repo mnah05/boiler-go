@@ -45,6 +45,13 @@ func (r *UserRepo) GetByID(ctx context.Context, id pgtype.UUID) (db.User, error)
 }
 
 func (r *UserRepo) List(ctx context.Context, limit int32) ([]db.User, error) {
+	if limit <= 0 {
+		return nil, fmt.Errorf("user repo: list: limit must be positive")
+	}
+	if limit > 1000 {
+		limit = 1000
+	}
+
 	start := time.Now()
 	users, err := r.queries.ListUsers(ctx, limit)
 	r.logQuery("List", "users", err, start)

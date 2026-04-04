@@ -49,11 +49,11 @@ func main() {
 		Addr:         cfg.RedisAddr,
 		Password:     cfg.RedisPassword,
 		DB:           cfg.RedisDB,
-		PoolSize:     20,
-		MinIdleConns: 5,
-		DialTimeout:  5 * time.Second,
-		ReadTimeout:  3 * time.Second,
-		WriteTimeout: 3 * time.Second,
+		PoolSize:     cfg.RedisPoolSize,
+		MinIdleConns: cfg.RedisMinIdleConns,
+		DialTimeout:  cfg.RedisDialTimeout,
+		ReadTimeout:  cfg.RedisReadTimeout,
+		WriteTimeout: cfg.RedisWriteTimeout,
 	})
 
 	redisCtx, redisCancel := context.WithTimeout(ctx, 5*time.Second)
@@ -114,14 +114,28 @@ func main() {
 	}
 
 	if err := schedulerClient.Close(); err != nil {
-		logg.Error().Err(err).Msg("scheduler client close failed")
+		logg.Error().Err(err).Msg("scheduler client close failed, retrying")
+		time.Sleep(100 * time.Millisecond)
+		if retryErr := schedulerClient.Close(); retryErr != nil {
+			logg.Error().Err(retryErr).Msg("scheduler client close failed on retry")
+		} else {
+			logg.Info().Msg("scheduler client closed on retry")
+		}
+	} else {
+		logg.Info().Msg("scheduler client closed")
 	}
-	logg.Info().Msg("scheduler client closed")
 
 	if err := rdb.Close(); err != nil {
-		logg.Error().Err(err).Msg("redis close failed")
+		logg.Error().Err(err).Msg("redis close failed, retrying")
+		time.Sleep(100 * time.Millisecond)
+		if retryErr := rdb.Close(); retryErr != nil {
+			logg.Error().Err(retryErr).Msg("redis close failed on retry")
+		} else {
+			logg.Info().Msg("redis disconnected on retry")
+		}
+	} else {
+		logg.Info().Msg("redis disconnected")
 	}
-	logg.Info().Msg("redis disconnected")
 
 	pool.Close()
 	logg.Info().Msg("database disconnected")
