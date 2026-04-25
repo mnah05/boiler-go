@@ -37,7 +37,7 @@ make worker
 - ✅ **Structured Logging** - JSON logging with request tracing and correlation IDs
 - ✅ **Environment Configuration** - Flexible config with validation (returns errors, no logger injection)
 - ✅ **CORS Support** - Configurable per-origin CORS (no wildcard)
-- ✅ **Rate Limiting** - Token bucket rate limiter (10 req/sec, burst 20) via `httprate`
+- ✅ **Rate Limiting** - Token bucket rate limiter (10 req/sec per IP) via `httprate`
 - ✅ **Request Size Limiting** - Global 1MB request body size limit
 - ✅ **Input Validation** - Struct validation with `go-playground/validator`
 - ✅ **Security Hardened** - Secure log permissions (0600), configurable CORS, health endpoints excluded from rate limiting
@@ -76,7 +76,22 @@ HTTP Request
     │
     ▼
 ┌─────────────────┐
-│ Logger Middleware│ ← Injects request_id and logger into context
+│ SecurityHeaders │ ← X-Content-Type-Options, X-Frame-Options, CSP
+└─────────────────┘
+    │
+    ▼
+┌─────────────────┐
+│  CORS Handler   │ ← Configurable per-origin CORS
+└─────────────────┘
+    │
+    ▼
+┌─────────────────┐
+│ RequestLogger   │ ← Injects request_id and logger into context
+└─────────────────┘
+    │
+    ▼
+┌─────────────────┐
+│ MaxBodySize     │ ← 1MB global limit
 └─────────────────┘
     │
     ▼
@@ -104,7 +119,7 @@ boiler-go/
 ├── internal/
 │   ├── config/              # Environment configuration and validation
 │   ├── handler/             # HTTP request handlers
-│   ├── middleware/          # HTTP middleware (logging, CORS, body limiting)
+│   ├── middleware/          # HTTP middleware (security, CORS, logging, auth, body limit)
 │   ├── queue/               # Shared queue names and priority configuration
 │   ├── repository/          # Data access layer
 │   │   ├── pool/            # Database connection pool
@@ -133,6 +148,7 @@ boiler-go/
 | `internal/scheduler` | Task enqueueing | `Client.Enqueue()`, `Client.EnqueueWithID()` |
 | `internal/tasks` | Task type constants | `TypeWorkerPing` |
 | `internal/validator` | Struct validation | `ValidateStruct()`, `GetValidationErrors()` |
+| `pkg/jwtpkg` | JWT token generation and parsing | `GenerateToken()`, `ParseToken()`, `NewClaims()` |
 | `pkg/logger` | Logging utilities | `New()`, `Global()`, `FromChiContext()` |
 
 ---
@@ -156,6 +172,9 @@ REDIS_DB=0
 # Worker
 WORKER_CONCURRENCY=10
 
+# Security
+JWT_SECRET=your-secret-key-here-must-be-at-least-32-chars
+
 # Timeouts
 HEALTH_CHECK_TIMEOUT=2s
 API_SHUTDOWN_TIMEOUT=10s
@@ -177,7 +196,7 @@ CORS_ALLOWED_ORIGINS=http://localhost:3000,https://example.com
 CORS_ALLOWED_ORIGINS=http://localhost:3000,https://myapp.com
 ```
 
-**LOG_OUTPUT & LOG_FILE**: When set to `file` or `both`, logs are written with `0600` permissions (owner read/write only) for security.
+**LOG_OUTPUT & LOG_FILE**: When set to `file` or `both`, log files are written with `0600` permissions and log directories with `0750` for security.
 
 ### Database Configuration
 
@@ -202,11 +221,18 @@ baseRepo := repo.NewBaseRepo(pool, log)
 // Specific repositories
 userRepo := repo.NewUserRepo(pool, log)
 
-// Transaction support
-// Use pgx directly or add a transaction helper when needed:
-// tx, err := pool.Begin(ctx)
-// q := db.New(tx)
-// ... use q within transaction
+// Transaction support via repo layer
+userRepo := repo.NewUserRepo(pool, log)
+tx, err := pool.Begin(ctx)
+if err != nil { ... }
+defer tx.Rollback(ctx)
+
+txRepo := userRepo.WithTx(tx)
+user, err := txRepo.Create(ctx, params)
+if err != nil { ... }
+// ... more operations
+
+if err := tx.Commit(ctx); err != nil { ... }
 ```
 
 All database operations include automatic query logging with duration tracking.
@@ -217,7 +243,7 @@ All database operations include automatic query logging with duration tracking.
 
 ### Prerequisites
 
-- Go 1.25+
+- Go 1.24.0
 - Docker & Docker Compose
 - PostgreSQL
 - Redis
@@ -313,7 +339,7 @@ This boilerplate includes several production-ready features:
 
 - **Structured JSON logging** throughout the application
 - **Request correlation** - HTTP `X-Request-ID` is propagated to worker logs via task payloads
-- **Global fallback** - `FromEchoContext` falls back to a global logger instead of silently dropping logs
+- **Global fallback** - `FromChiContext` falls back to a global logger instead of silently dropping logs
 - **Consistent format** - Config uses the same logger as the rest of the app
 
 ### Error Handling
@@ -333,8 +359,7 @@ This boilerplate includes several production-ready features:
 
 IP-based token bucket rate limiter via `go-chi/httprate`:
 - **Rate**: 10 requests per second
-- **Burst**: 20 requests
-- **Key**: Client IP (supports X-Forwarded-For, X-Real-IP headers)
+- **Key**: Client IP (via `httprate.KeyByIP`, strips port)
 - **Excluded Endpoints**: `/health` and `/worker/health` (for monitoring)
 - **Response**: HTTP 429 with JSON error when limit exceeded
 
@@ -462,10 +487,12 @@ Response:
 ```json
 {
   "success": true,
-  "task_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
-  "task_type": "worker:ping",
-  "queued_at": "2024-02-21T20:41:00Z",
-  "message": "Task queued successfully. Check worker logs to verify processing."
+  "data": {
+    "task_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "task_type": "worker:ping",
+    "queued_at": "2024-02-21T20:41:00.000000000Z"
+  },
+  "message": "task queued successfully"
 }
 ```
 
@@ -513,8 +540,8 @@ Response:
   "id": "550e8400-e29b-41d4-a716-446655440000",
   "email": "user@example.com",
   "name": "John Doe",
-  "created_at": "2024-01-15 10:30:00 +0000 UTC",
-  "updated_at": "2024-01-15 10:30:00 +0000 UTC"
+  "created_at": "2024-01-15T10:30:00.000000000Z",
+  "updated_at": "2024-01-15T10:30:00.000000000Z"
 }
 ```
 
