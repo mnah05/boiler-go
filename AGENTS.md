@@ -78,9 +78,10 @@ make stop         # Stop all local go run / migrate processes
 
 ## Worker Shutdown Behavior
 
-- On shutdown signal: `srv.Stop()` → drain `workerErrors` channel → `srv.Shutdown()` in a goroutine with `cfg.WorkerShutdownTimeout`
+- On shutdown signal: `srv.Stop()` → drain `workerErrors` channel → pre-shutdown Redis ping → `srv.Shutdown()` in a goroutine with `cfg.WorkerShutdownTimeout`
 - If shutdown times out, worker exits with `os.Exit(1)`
 - `srv.Shutdown()` returns void (asynq v0.26.0 API); no error to capture
+- **Observability**: worker pings Redis before shutdown and warns if unreachable (tasks may not be reclaimed); panic recovery wraps `srv.Shutdown()` to prevent silent crashes
 
 ## Middleware Stack (Router Order)
 

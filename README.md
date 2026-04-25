@@ -644,8 +644,17 @@ srv.Stop()
 shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.WorkerShutdownTimeout)
 defer cancel()
 
+if err := rdb.Ping(shutdownCtx).Err(); err != nil {
+    logg.Warn().Err(err).Msg("redis unreachable before shutdown, tasks may not be reclaimed")
+}
+
 done := make(chan struct{})
 go func() {
+    defer func() {
+        if r := recover(); r != nil {
+            logg.Error().Interface("panic", r).Msg("worker shutdown panicked")
+        }
+    }()
     srv.Shutdown()
     close(done)
 }()
