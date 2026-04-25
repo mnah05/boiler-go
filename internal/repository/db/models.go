@@ -8,17 +8,6 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-type Job struct {
-	ID          pgtype.UUID        `json:"id"`
-	TaskType    string             `json:"task_type"`
-	Payload     []byte             `json:"payload"`
-	Status      string             `json:"status"`
-	Attempts    int32              `json:"attempts"`
-	LastError   pgtype.Text        `json:"last_error"`
-	CreatedAt   pgtype.Timestamptz `json:"created_at"`
-	CompletedAt pgtype.Timestamptz `json:"completed_at"`
-}
-
 type User struct {
 	ID        pgtype.UUID        `json:"id"`
 	Email     string             `json:"email"`

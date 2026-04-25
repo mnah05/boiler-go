@@ -47,17 +47,21 @@ func (h *WorkerHandler) Ping(w http.ResponseWriter, r *http.Request) {
 	requestID := middleware.GetReqID(r.Context())
 
 	var payloadMsg string
-	if r.ContentLength > 0 {
+	if r.Body != http.NoBody {
 		var body PingRequest
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			log.Error().Err(err).Msg("failed to decode ping request")
-			NewErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid request body")
+			if wErr := NewErrorResponse(w, http.StatusBadRequest, "bad_request", "invalid request body"); wErr != nil {
+				log.Error().Err(wErr).Msg("failed to write error response")
+			}
 			return
 		}
 
 		if err := validator.ValidateStruct(&body); err != nil {
-			errors := validator.GetValidationErrors(err)
-			NewErrorResponseWithDetails(w, http.StatusBadRequest, "validation_error", "validation failed", errors)
+			validationErrors := validator.GetValidationErrors(err)
+			if wErr := NewErrorResponseWithDetails(w, http.StatusBadRequest, "validation_error", "validation failed", validationErrors); wErr != nil {
+				log.Error().Err(wErr).Msg("failed to write error response")
+			}
 			return
 		}
 
@@ -68,15 +72,18 @@ func (h *WorkerHandler) Ping(w http.ResponseWriter, r *http.Request) {
 		payloadMsg = "ping from API"
 	}
 
+	now := time.Now().UTC()
 	payload := tasks.PingTaskPayload{
 		Message:   payloadMsg,
 		RequestID: requestID,
-		QueuedAt:  time.Now().UTC(),
+		QueuedAt:  now,
 	}
 	payloadBytes, err := json.Marshal(payload)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to marshal ping payload")
-		NewErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to create task payload")
+		if wErr := NewErrorResponse(w, http.StatusInternalServerError, "internal_error", "failed to create task payload"); wErr != nil {
+			log.Error().Err(wErr).Msg("failed to write error response")
+		}
 		return
 	}
 
@@ -90,7 +97,9 @@ func (h *WorkerHandler) Ping(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to enqueue worker ping task")
-		NewErrorResponse(w, http.StatusServiceUnavailable, "service_unavailable", "failed to enqueue task")
+		if wErr := NewErrorResponse(w, http.StatusServiceUnavailable, "service_unavailable", "failed to enqueue task"); wErr != nil {
+			log.Error().Err(wErr).Msg("failed to write error response")
+		}
 		return
 	}
 
@@ -100,11 +109,13 @@ func (h *WorkerHandler) Ping(w http.ResponseWriter, r *http.Request) {
 		Str("request_id", requestID).
 		Msg("worker ping task enqueued")
 
-	NewSuccessResponse(w, http.StatusAccepted, PingResponse{
+	if wErr := NewSuccessResponse(w, http.StatusAccepted, PingResponse{
 		TaskID:   taskID,
 		TaskType: tasks.TypeWorkerPing,
-		QueuedAt: time.Now().UTC(),
-	}, "task queued successfully")
+		QueuedAt: now,
+	}, "task queued successfully"); wErr != nil {
+		log.Error().Err(wErr).Msg("failed to write success response")
+	}
 }
 
 func (h *WorkerHandler) Status(w http.ResponseWriter, r *http.Request) {
@@ -114,35 +125,26 @@ func (h *WorkerHandler) Status(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	status := map[string]string{
-		"redis":    "unknown",
-		"database": "unknown",
-	}
 	overall := http.StatusOK
+	dbStatus, redisStatus := checkDependencies(ctx, h.db, h.redis)
 
-	if err := h.redis.Ping(ctx).Err(); err != nil {
-		log.Error().Err(err).Msg("redis health check failed")
-		status["redis"] = "disconnected"
+	status := map[string]string{
+		"redis":    dbStatus,
+		"database": redisStatus,
+	}
+	if dbStatus == "down" || redisStatus == "down" {
 		overall = http.StatusServiceUnavailable
-	} else {
-		status["redis"] = "connected"
 	}
 
-	if err := h.db.Ping(ctx); err != nil {
-		log.Error().Err(err).Msg("database health check failed")
-		status["database"] = "disconnected"
-		overall = http.StatusServiceUnavailable
-	} else {
-		status["database"] = "connected"
-	}
-
-	WriteJSON(w, overall, map[string]any{
+	if err := WriteJSON(w, overall, map[string]any{
 		"request_id": requestID,
 		"redis":      status["redis"],
 		"database":   status["database"],
 		"queues":     queue.Names(),
 		"note":       "Use POST /worker/ping to test task processing",
-	})
+	}); err != nil {
+		log.Error().Err(err).Msg("failed to write status response")
+	}
 }
 
 type HealthResponse struct {
@@ -159,21 +161,14 @@ func (h *WorkerHandler) Health(w http.ResponseWriter, r *http.Request) {
 
 	log := logger.FromChiContext(r.Context())
 
-	status := map[string]string{
-		"database": "up",
-		"redis":    "up",
-	}
 	overall := http.StatusOK
+	dbStatus, redisStatus := checkDependencies(ctx, h.db, h.redis)
 
-	if err := h.db.Ping(ctx); err != nil {
-		log.Error().Err(err).Msg("database health check failed")
-		status["database"] = "down"
-		overall = http.StatusServiceUnavailable
+	status := map[string]string{
+		"database": dbStatus,
+		"redis":    redisStatus,
 	}
-
-	if err := h.redis.Ping(ctx).Err(); err != nil {
-		log.Error().Err(err).Msg("redis health check failed")
-		status["redis"] = "down"
+	if dbStatus == "down" || redisStatus == "down" {
 		overall = http.StatusServiceUnavailable
 	}
 
@@ -185,9 +180,11 @@ func (h *WorkerHandler) Health(w http.ResponseWriter, r *http.Request) {
 		Str("redis", status["redis"]).
 		Msg("worker health check completed")
 
-	WriteJSON(w, overall, HealthResponse{
+	if err := WriteJSON(w, overall, HealthResponse{
 		Status:   status,
 		Checked:  time.Now().UTC(),
 		Duration: duration.Milliseconds(),
-	})
+	}); err != nil {
+		log.Error().Err(err).Msg("failed to write health check response")
+	}
 }

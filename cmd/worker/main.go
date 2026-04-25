@@ -20,14 +20,19 @@ import (
 )
 
 func main() {
-	bootLog := logger.New()
+	bootLog := logger.NewProduction("info")
 
 	cfg, err := config.Load()
 	if err != nil {
-		bootLog.Fatal().Err(err).Msg("failed to load config")
+		bootLog.Error().Err(err).Msg("failed to load config")
+		os.Exit(1)
 	}
 
-	logg, logCleanup := logger.NewLogger(cfg, "logs/worker.log")
+	logg, logCleanup, err := logger.NewLogger(cfg, "logs/worker.log")
+	if err != nil {
+		bootLog.Error().Err(err).Msg("failed to create logger")
+		os.Exit(1)
+	}
 	if logCleanup != nil {
 		defer logCleanup()
 	}
@@ -35,18 +40,14 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := pool.Open(ctx, cfg); err != nil {
-		logg.Fatal().Err(err).Msg("failed to initialize database")
+		logg.Error().Err(err).Msg("failed to initialize database")
+		os.Exit(1)
 	}
 	logg.Info().Msg("database connected")
 	defer func() {
 		pool.Close()
 		logg.Info().Msg("database disconnected")
 	}()
-
-	dbPool := pool.Get()
-	if dbPool == nil {
-		logg.Fatal().Msg("database pool is nil")
-	}
 
 	redisOpt := asynq.RedisClientOpt{
 		Addr:     cfg.RedisAddr,
@@ -109,7 +110,9 @@ func main() {
 	go func() {
 		logg.Info().Msg("worker starting")
 		if err := srv.Run(mux); err != nil {
-			workerErrors <- fmt.Errorf("worker failed to start: %w", err)
+			workerErrors <- fmt.Errorf("worker failed: %w", err)
+		} else {
+			workerErrors <- nil
 		}
 	}()
 
@@ -118,7 +121,11 @@ func main() {
 
 	select {
 	case err := <-workerErrors:
-		logg.Fatal().Err(err).Msg("worker startup failed")
+		if err != nil {
+			logg.Error().Err(err).Msg("worker startup failed")
+			os.Exit(1)
+		}
+		logg.Info().Msg("worker exited cleanly")
 	case sig := <-sigChan:
 		logg.Info().Str("signal", sig.String()).Msg("shutdown signal received")
 	}
@@ -127,6 +134,11 @@ func main() {
 
 	srv.Stop()
 	logg.Info().Msg("worker stopped accepting new tasks")
+
+	// Drain workerErrors so the srv.Run goroutine never blocks on send.
+	go func() {
+		<-workerErrors
+	}()
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.WorkerShutdownTimeout)
 	defer shutdownCancel()
@@ -142,8 +154,6 @@ func main() {
 		logg.Info().Msg("worker shutdown completed gracefully")
 	case <-shutdownCtx.Done():
 		logg.Warn().Msg("worker shutdown timed out, forcing exit")
-		pool.Close()
-		logg.Info().Msg("database disconnected")
 		os.Exit(1)
 	}
 

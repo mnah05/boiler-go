@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -50,6 +51,14 @@ func Get() *pgxpool.Pool {
 	mu.RLock()
 	defer mu.RUnlock()
 	return pool
+}
+
+func Begin(ctx context.Context) (pgx.Tx, error) {
+	p := Get()
+	if p == nil {
+		return nil, fmt.Errorf("database pool not initialized")
+	}
+	return p.Begin(ctx)
 }
 
 func Close() {

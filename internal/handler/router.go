@@ -20,8 +20,12 @@ import (
 func NewRouter(log zerolog.Logger, cfg *config.Config, db *pgxpool.Pool, redis *redis.Client, scheduler *scheduler.Client) http.Handler {
 	r := chi.NewRouter()
 
+	// Global middleware stack
 	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
+	r.Use(custommiddleware.SecurityHeaders(custommiddleware.SecurityConfig{
+		HSTSEnabled: cfg.SecurityHSTSEnabled,
+	}))
 	r.Use(cors.Handler(cors.Options{
 		AllowedOrigins: cfg.CORSAllowedOrigins,
 		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
@@ -32,31 +36,48 @@ func NewRouter(log zerolog.Logger, cfg *config.Config, db *pgxpool.Pool, redis *
 	r.Use(custommiddleware.RequestLogger(log))
 	r.Use(custommiddleware.MaxBodySize(1 << 20)) // 1MB global limit
 
-	// Health endpoints (excluded from rate limiting)
+	// Global 404 handler
+	r.NotFound(NotFoundHandler)
+
+	// Health endpoints (excluded from rate limiting and auth)
 	health := NewHealthHandler(db, redis, cfg.HealthCheckTimeout)
 	worker := NewWorkerHandler(scheduler, db, redis)
 	r.Get("/health", health.Check)
 	r.Get("/worker/health", worker.Health)
 
+	// JWT auth middleware (for protected routes)
+	jwtAuth := custommiddleware.JWTAuth(custommiddleware.JWTConfig{
+		Secret: []byte(cfg.JWTSecret),
+	})
+
 	// Rate-limited API routes
 	r.Group(func(r chi.Router) {
 		r.Use(httprate.Limit(10, time.Second,
-			httprate.WithKeyByIP(),
+			httprate.WithKeyFuncs(httprate.KeyByIP),
 			httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
-				NewErrorResponse(w, http.StatusTooManyRequests, "rate_limit_exceeded", "too many requests")
+				_ = NewErrorResponse(w, http.StatusTooManyRequests, "rate_limit_exceeded", "too many requests")
 			}),
 		))
 
+		// Public routes (rate limited, no auth)
 		r.Route("/worker", func(r chi.Router) {
 			r.Get("/status", worker.Status)
 			r.Post("/ping", worker.Ping)
 		})
 
-		repoTest := NewRepoTestHandler(db, log)
-		r.Route("/repo-test", func(r chi.Router) {
-			r.Post("/users", repoTest.CreateUser)
-			r.Get("/users", repoTest.ListUsers)
-			r.Get("/users/get", repoTest.GetUser)
+		// Protected routes (rate limited + auth)
+		r.Group(func(r chi.Router) {
+			r.Use(jwtAuth)
+
+			repoTest := NewRepoTestHandler(db, log)
+			r.Route("/repo-test", func(r chi.Router) {
+				r.Post("/users", repoTest.CreateUser)
+				r.Get("/users", repoTest.ListUsers)
+				r.Get("/users/get", repoTest.GetUser)
+			})
+
+			// Example admin-only route
+			// r.With(custommiddleware.RequireRole("admin")).Get("/admin", adminHandler)
 		})
 	})
 

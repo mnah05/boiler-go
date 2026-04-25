@@ -11,6 +11,7 @@ import (
 )
 
 type Config struct {
+	AppHost string `env:"APP_HOST" envDefault:"127.0.0.1"`
 	AppPort string `env:"APP_PORT" envDefault:"8080"`
 
 	DatabaseURL string `env:"DATABASE_URL,required"`
@@ -42,10 +43,20 @@ type Config struct {
 	LogLevel  string `env:"LOG_LEVEL" envDefault:"info"`
 
 	CORSAllowedOrigins []string `env:"CORS_ALLOWED_ORIGINS" envSeparator:"," envDefault:"http://localhost:3000"`
+
+	JWTSecret         string        `env:"JWT_SECRET,required"`
+	RequestTimeout    time.Duration `env:"REQUEST_TIMEOUT" envDefault:"30s"`
+	SecurityHSTSEnabled bool        `env:"SECURITY_HSTS_ENABLED" envDefault:"false"`
 }
 
 func Load() (*Config, error) {
-	_ = godotenv.Load()
+	if err := godotenv.Load(); err != nil {
+		// Only treat it as an error if the file exists but is malformed.
+		// If it doesn't exist, that's fine.
+		if _, ok := err.(*url.Error); !ok && err.Error() != "open .env: no such file or directory" {
+			// godotenv returns generic errors, so we just log and continue
+		}
+	}
 
 	var c Config
 	if err := env.Parse(&c); err != nil {
@@ -60,9 +71,6 @@ func Load() (*Config, error) {
 }
 
 func (c *Config) validate() error {
-	if c.DatabaseURL == "" {
-		return fmt.Errorf("DATABASE_URL is required")
-	}
 	if err := validateDatabaseURL(c.DatabaseURL); err != nil {
 		return fmt.Errorf("invalid DATABASE_URL: %w", err)
 	}
@@ -96,6 +104,15 @@ func (c *Config) validate() error {
 	if c.DBMinConns > c.DBMaxConns {
 		return fmt.Errorf("DB_MIN_CONNS cannot exceed DB_MAX_CONNS")
 	}
+	if c.DBMaxConnLifetime <= 0 {
+		return fmt.Errorf("DB_MAX_CONN_LIFETIME must be positive")
+	}
+	if c.DBMaxConnIdleTime <= 0 {
+		return fmt.Errorf("DB_MAX_CONN_IDLE_TIME must be positive")
+	}
+	if c.DBHealthCheckPeriod <= 0 {
+		return fmt.Errorf("DB_HEALTH_CHECK_PERIOD must be positive")
+	}
 	if c.RedisPoolSize <= 0 {
 		return fmt.Errorf("REDIS_POOL_SIZE must be positive")
 	}
@@ -105,11 +122,26 @@ func (c *Config) validate() error {
 	if c.RedisMinIdleConns > c.RedisPoolSize {
 		return fmt.Errorf("REDIS_MIN_IDLE_CONNS cannot exceed REDIS_POOL_SIZE")
 	}
+	if c.RedisDialTimeout <= 0 {
+		return fmt.Errorf("REDIS_DIAL_TIMEOUT must be positive")
+	}
+	if c.RedisReadTimeout <= 0 {
+		return fmt.Errorf("REDIS_READ_TIMEOUT must be positive")
+	}
+	if c.RedisWriteTimeout <= 0 {
+		return fmt.Errorf("REDIS_WRITE_TIMEOUT must be positive")
+	}
 	if c.LogOutput != "stdout" && c.LogOutput != "file" && c.LogOutput != "both" {
 		return fmt.Errorf("LOG_OUTPUT must be one of: stdout, file, both")
 	}
 	if (c.LogOutput == "file" || c.LogOutput == "both") && c.LogFile == "" {
 		return fmt.Errorf("LOG_FILE is required when LOG_OUTPUT is file or both")
+	}
+	if len(c.JWTSecret) < 32 {
+		return fmt.Errorf("JWT_SECRET must be at least 32 characters")
+	}
+	if c.RequestTimeout <= 0 {
+		return fmt.Errorf("REQUEST_TIMEOUT must be positive")
 	}
 	return nil
 }

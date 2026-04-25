@@ -5,6 +5,7 @@ import (
 
 	"boiler-go/internal/repository/db"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 )
@@ -27,6 +28,14 @@ func (r *BaseRepo) Queries() *db.Queries {
 	return r.queries
 }
 
+func (r *BaseRepo) WithTx(tx pgx.Tx) *BaseRepo {
+	return &BaseRepo{
+		queries: db.New(tx),
+		pool:    r.pool,
+		log:     r.log,
+	}
+}
+
 func (r *BaseRepo) logQuery(queryName, table string, err error, start time.Time) {
 	elapsed := time.Since(start)
 
@@ -36,7 +45,7 @@ func (r *BaseRepo) logQuery(queryName, table string, err error, start time.Time)
 			Str("query", queryName).
 			Str("table", table).
 			Dur("duration", elapsed).
-			Send()
+			Msg("query failed")
 		return
 	}
 
@@ -44,5 +53,5 @@ func (r *BaseRepo) logQuery(queryName, table string, err error, start time.Time)
 		Str("query", queryName).
 		Str("table", table).
 		Dur("duration", elapsed).
-		Send()
+		Msg("query executed")
 }

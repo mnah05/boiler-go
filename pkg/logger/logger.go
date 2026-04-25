@@ -18,7 +18,7 @@ var (
 	globalOnce sync.Once
 )
 
-func NewLogger(cfg *config.Config, defaultFile string) (zerolog.Logger, func() error) {
+func NewLogger(cfg *config.Config, defaultFile string) (zerolog.Logger, func() error, error) {
 	switch cfg.LogOutput {
 	case "file", "both":
 		filePath := cfg.LogFile
@@ -27,12 +27,11 @@ func NewLogger(cfg *config.Config, defaultFile string) (zerolog.Logger, func() e
 		}
 		logg, cleanup, err := NewWithFile(filePath, cfg.LogOutput == "both", cfg.LogLevel)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to create logger: %v\n", err)
-			os.Exit(1)
+			return zerolog.Logger{}, nil, fmt.Errorf("failed to create logger: %w", err)
 		}
-		return logg, cleanup
+		return logg, cleanup, nil
 	default:
-		return NewProduction(cfg.LogLevel), func() error { return nil }
+		return NewProduction(cfg.LogLevel), func() error { return nil }, nil
 	}
 }
 
@@ -78,7 +77,7 @@ func NewWithFile(filePath string, console bool, level string) (zerolog.Logger, f
 	if filePath != "" {
 		dir := filepath.Dir(filePath)
 		if dir != "" && dir != "." {
-			if err := os.MkdirAll(dir, 0755); err != nil {
+			if err := os.MkdirAll(dir, 0750); err != nil {
 				return zerolog.Logger{}, nil, fmt.Errorf("create log dir: %w", err)
 			}
 		}
@@ -112,7 +111,7 @@ func NewWithFile(filePath string, console bool, level string) (zerolog.Logger, f
 
 func Global() zerolog.Logger {
 	globalOnce.Do(func() {
-		global = New()
+		global = New().Level(zerolog.InfoLevel)
 	})
 	return global
 }

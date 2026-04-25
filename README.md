@@ -126,7 +126,7 @@ boiler-go/
 |---------|---------|---------------------|
 | `internal/config` | Environment parsing and validation | `Load()` → `(*Config, error)`, `Config` struct |
 | `internal/repository/pool` | Thread-safe database pool | `Open(ctx, cfg)`, `Get()`, `Close()` |
-| `internal/repository/repo` | Data access layer with logging | `BaseRepo`, `UserRepo`, `TxManager` |
+| `internal/repository/repo` | Data access layer with logging | `BaseRepo`, `UserRepo` |
 | `internal/handler` | HTTP request handlers | `HealthHandler`, `WorkerHandler`, `RepoTestHandler` |
 | `internal/middleware` | HTTP middleware | `RequestLogger()`, `MaxBodySize()` |
 | `internal/queue` | Queue configuration | `Names()`, `Priorities()` |
@@ -203,11 +203,10 @@ baseRepo := repo.NewBaseRepo(pool, log)
 userRepo := repo.NewUserRepo(pool, log)
 
 // Transaction support
-txManager := repo.NewTxManager(pool, log)
-err := txManager.Execute(ctx, func(q *db.Queries) error {
-    // Perform operations within transaction
-    return nil
-})
+// Use pgx directly or add a transaction helper when needed:
+// tx, err := pool.Begin(ctx)
+// q := db.New(tx)
+// ... use q within transaction
 ```
 
 All database operations include automatic query logging with duration tracking.

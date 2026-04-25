@@ -20,30 +20,36 @@ import (
 )
 
 func main() {
-	bootLog := logger.New()
+	bootLog := logger.NewProduction("info")
 
 	cfg, err := config.Load()
 	if err != nil {
-		bootLog.Fatal().Err(err).Msg("failed to load config")
+		bootLog.Error().Err(err).Msg("failed to load config")
+		os.Exit(1)
 	}
 
-	logg, logCleanup := logger.NewLogger(cfg, "logs/api.log")
+	logg, logCleanup, err := logger.NewLogger(cfg, "logs/api.log")
+	if err != nil {
+		bootLog.Error().Err(err).Msg("failed to create logger")
+		os.Exit(1)
+	}
 	if logCleanup != nil {
 		defer logCleanup()
 	}
-	ctx := context.Background()
 
-	dbCtx, dbCancel := context.WithTimeout(ctx, 10*time.Second)
+	dbCtx, dbCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer dbCancel()
 	if err := pool.Open(dbCtx, cfg); err != nil {
-		logg.Fatal().Err(err).Msg("failed to initialize database")
+		logg.Error().Err(err).Msg("failed to initialize database")
+		os.Exit(1)
 	}
 	logg.Info().Msg("database connected")
+	defer func() {
+		pool.Close()
+		logg.Info().Msg("database disconnected")
+	}()
 
 	dbPool := pool.Get()
-	if dbPool == nil {
-		logg.Fatal().Msg("database pool is nil")
-	}
 
 	rdb := redis.NewClient(&redis.Options{
 		Addr:         cfg.RedisAddr,
@@ -56,12 +62,20 @@ func main() {
 		WriteTimeout: cfg.RedisWriteTimeout,
 	})
 
-	redisCtx, redisCancel := context.WithTimeout(ctx, 5*time.Second)
+	redisCtx, redisCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer redisCancel()
 	if err := rdb.Ping(redisCtx).Err(); err != nil {
-		logg.Fatal().Err(err).Msg("redis connection failed")
+		logg.Error().Err(err).Msg("redis connection failed")
+		os.Exit(1)
 	}
 	logg.Info().Msg("redis connected")
+	defer func() {
+		if err := rdb.Close(); err != nil {
+			logg.Error().Err(err).Msg("redis close failed")
+		} else {
+			logg.Info().Msg("redis disconnected")
+		}
+	}()
 
 	schedulerClient := scheduler.NewClient(asynq.RedisClientOpt{
 		Addr:     cfg.RedisAddr,
@@ -69,11 +83,18 @@ func main() {
 		DB:       cfg.RedisDB,
 	})
 	logg.Info().Msg("scheduler client initialized")
+	defer func() {
+		if err := schedulerClient.Close(); err != nil {
+			logg.Error().Err(err).Msg("scheduler client close failed")
+		} else {
+			logg.Info().Msg("scheduler client closed")
+		}
+	}()
 
 	router := handler.NewRouter(logg, cfg, dbPool, rdb, schedulerClient)
 
 	server := &http.Server{
-		Addr:           ":" + cfg.AppPort,
+		Addr:           cfg.AppHost + ":" + cfg.AppPort,
 		Handler:        router,
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   10 * time.Second,
@@ -97,7 +118,8 @@ func main() {
 
 	select {
 	case err := <-serverErrors:
-		logg.Fatal().Err(err).Msg("server startup failed")
+		logg.Error().Err(err).Msg("server startup failed")
+		os.Exit(1)
 	case sig := <-sigChan:
 		logg.Info().Str("signal", sig.String()).Msg("shutdown signal received")
 	}
@@ -112,33 +134,6 @@ func main() {
 	} else {
 		logg.Info().Msg("server shutdown completed gracefully")
 	}
-
-	if err := schedulerClient.Close(); err != nil {
-		logg.Error().Err(err).Msg("scheduler client close failed, retrying")
-		time.Sleep(100 * time.Millisecond)
-		if retryErr := schedulerClient.Close(); retryErr != nil {
-			logg.Error().Err(retryErr).Msg("scheduler client close failed on retry")
-		} else {
-			logg.Info().Msg("scheduler client closed on retry")
-		}
-	} else {
-		logg.Info().Msg("scheduler client closed")
-	}
-
-	if err := rdb.Close(); err != nil {
-		logg.Error().Err(err).Msg("redis close failed, retrying")
-		time.Sleep(100 * time.Millisecond)
-		if retryErr := rdb.Close(); retryErr != nil {
-			logg.Error().Err(retryErr).Msg("redis close failed on retry")
-		} else {
-			logg.Info().Msg("redis disconnected on retry")
-		}
-	} else {
-		logg.Info().Msg("redis disconnected")
-	}
-
-	pool.Close()
-	logg.Info().Msg("database disconnected")
 
 	logg.Info().Msg("server stopped cleanly")
 }
