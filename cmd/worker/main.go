@@ -16,6 +16,7 @@ import (
 	"boiler-go/pkg/logger"
 
 	"github.com/hibiken/asynq"
+	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog"
 )
 
@@ -54,6 +55,26 @@ func main() {
 		Password: cfg.RedisPassword,
 		DB:       cfg.RedisDB,
 	}
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     cfg.RedisAddr,
+		Password: cfg.RedisPassword,
+		DB:       cfg.RedisDB,
+	})
+	redisCtx, redisCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer redisCancel()
+	if err := rdb.Ping(redisCtx).Err(); err != nil {
+		logg.Error().Err(err).Msg("redis connection failed")
+		os.Exit(1)
+	}
+	logg.Info().Msg("redis connected")
+	defer func() {
+		if err := rdb.Close(); err != nil {
+			logg.Error().Err(err).Msg("redis close failed")
+		} else {
+			logg.Info().Msg("redis disconnected")
+		}
+	}()
 
 	srv := asynq.NewServer(
 		redisOpt,
@@ -143,8 +164,17 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), cfg.WorkerShutdownTimeout)
 	defer shutdownCancel()
 
+	if err := rdb.Ping(shutdownCtx).Err(); err != nil {
+		logg.Warn().Err(err).Msg("redis unreachable before shutdown, tasks may not be reclaimed")
+	}
+
 	done := make(chan struct{})
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				logg.Error().Interface("panic", r).Msg("worker shutdown panicked")
+			}
+		}()
 		srv.Shutdown()
 		close(done)
 	}()
