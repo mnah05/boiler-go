@@ -11,6 +11,9 @@ A production-ready Go backend boilerplate with clean architecture, PostgreSQL, R
 git clone https://github.com/mnah05/boiler-go.git
 cd boiler-go
 
+# Configure git hooks (one-time setup)
+make hooks
+
 # Copy environment file
 cp .env.example .env
 
@@ -44,6 +47,7 @@ make worker
 - ✅ **Error Handling** - Standardized JSON error responses with HTTP status codes
 - ✅ **Database Migrations** - Schema versioning with golang-migrate
 - ✅ **Docker Support** - Containerized development environment
+- ✅ **Pre-commit Hooks** - Automated formatting, vetting, and linting on every commit via tracked `.githooks/`
 - ✅ **Comprehensive Documentation** - Error handling strategy with retry policies
 
 ---
@@ -578,6 +582,37 @@ go test -race ./...
 
 # Run integration tests
 go test -tags=integration ./...
+```
+
+---
+
+## 🔍 Code Quality
+
+The project uses a pre-commit hook (stored in `.githooks/`) to ensure code quality on every commit.
+
+### Setup
+
+After cloning, run once:
+
+```bash
+make hooks
+```
+
+### Manual Checks
+
+```bash
+make fmt    # Auto-format Go code
+make vet    # Run go vet for suspicious constructs
+make lint   # Run golangci-lint (requires installation)
+make check  # Run fmt, vet, lint, and test in sequence
+```
+
+### Bypassing the Hook
+
+In emergencies, commit without checks:
+
+```bash
+git commit --no-verify -m "..."
 ```
 
 ---

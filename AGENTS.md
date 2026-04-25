@@ -18,6 +18,11 @@ make build-api    # Build API binary to bin/api
 make build-worker # Build worker binary to bin/worker
 make build        # Build both binaries
 make stop         # Stop all local go run / migrate processes
+make hooks        # Configure git to use tracked hooks in .githooks/
+make fmt          # Run go fmt ./...
+make vet          # Run go vet ./...
+make lint         # Run golangci-lint (requires installation)
+make check        # Run fmt, vet, lint, and test in sequence
 ```
 
 ## Startup Order
@@ -26,6 +31,17 @@ make stop         # Stop all local go run / migrate processes
 2. `make migrate-up` — apply schema
 3. `make sqlc` — regenerate query code if SQL changed
 4. `make api` / `make worker`
+
+## Git Hooks
+
+- Pre-commit hook lives in `.githooks/pre-commit` (tracked by Git)
+- Run `make hooks` to configure Git to use the tracked directory: `git config core.hooksPath .githooks`
+- The hook runs on every commit:
+  1. `go fmt ./...` — auto-formats Go files and re-stages them
+  2. `go vet ./...` — catches suspicious constructs
+  3. `golangci-lint run` — full linting suite (skips gracefully if not installed)
+- Bypass in emergencies: `git commit --no-verify`
+- Contributors cloning the repo must run `make hooks` once after cloning
 
 ## Architecture
 
