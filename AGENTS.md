@@ -80,7 +80,7 @@ make stop         # Stop all local go run / migrate processes
 
 - On shutdown signal: `srv.Stop()` → drain `workerErrors` channel → `srv.Shutdown()` in a goroutine with `cfg.WorkerShutdownTimeout`
 - If shutdown times out, worker exits with `os.Exit(1)`
-- `srv.Shutdown()` error is currently ignored
+- `srv.Shutdown()` returns void (asynq v0.26.0 API); no error to capture
 
 ## Middleware Stack (Router Order)
 
@@ -103,5 +103,5 @@ make stop         # Stop all local go run / migrate processes
 
 - **No tests yet** — `make test` runs `go test -race ./...` against an empty suite
 - `pool.Close()` returns void; error handling not propagated in shutdown paths
-- Worker `srv.Shutdown()` error is silently dropped
+- Worker `srv.Shutdown()` returns void in asynq v0.26.0; no error to capture
 - `IsRouteProtected` was removed; no automatic route protection introspection exists
