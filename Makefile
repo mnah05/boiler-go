@@ -18,6 +18,24 @@ stop-migrate:
 stop: stop-api stop-worker stop-migrate
 	@echo "All services stopped"
 
+# ---------- format / lint ----------
+fmt:
+	go fmt ./...
+
+vet:
+	go vet ./...
+
+lint:
+	@if command -v golangci-lint >/dev/null 2>&1; then \
+		golangci-lint run; \
+	else \
+		echo "golangci-lint not installed. Run: brew install golangci-lint"; \
+		exit 1; \
+	fi
+
+check: fmt vet lint test
+	@echo "All checks passed"
+
 # ---------- test ----------
 test:
 	go test -race ./...
@@ -71,4 +89,4 @@ clean: stop dev-down
 	@rm -rf bin/
 	@echo "Cleaned up"
 
-.PHONY: api worker stop-api stop-worker stop-migrate stop test migrate-up migrate-down migrate-create migrate-force migrate-version sqlc dev dev-down dev-stop build-api build-worker build clean
+.PHONY: api worker stop-api stop-worker stop-migrate stop fmt vet lint check test migrate-up migrate-down migrate-create migrate-force migrate-version sqlc dev dev-down dev-stop build-api build-worker build clean

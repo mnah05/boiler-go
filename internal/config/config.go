@@ -44,19 +44,13 @@ type Config struct {
 
 	CORSAllowedOrigins []string `env:"CORS_ALLOWED_ORIGINS" envSeparator:"," envDefault:"http://localhost:3000"`
 
-	JWTSecret         string        `env:"JWT_SECRET,required"`
-	RequestTimeout    time.Duration `env:"REQUEST_TIMEOUT" envDefault:"30s"`
-	SecurityHSTSEnabled bool        `env:"SECURITY_HSTS_ENABLED" envDefault:"false"`
+	JWTSecret           string        `env:"JWT_SECRET,required"`
+	RequestTimeout      time.Duration `env:"REQUEST_TIMEOUT" envDefault:"30s"`
+	SecurityHSTSEnabled bool          `env:"SECURITY_HSTS_ENABLED" envDefault:"false"`
 }
 
 func Load() (*Config, error) {
-	if err := godotenv.Load(); err != nil {
-		// Only treat it as an error if the file exists but is malformed.
-		// If it doesn't exist, that's fine.
-		if _, ok := err.(*url.Error); !ok && err.Error() != "open .env: no such file or directory" {
-			// godotenv returns generic errors, so we just log and continue
-		}
-	}
+	_ = godotenv.Load() // Intentionally ignoring errors; env vars will be read from the environment
 
 	var c Config
 	if err := env.Parse(&c); err != nil {

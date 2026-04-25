@@ -34,7 +34,11 @@ func main() {
 		os.Exit(1)
 	}
 	if logCleanup != nil {
-		defer logCleanup()
+		defer func() {
+			if err := logCleanup(); err != nil {
+				logg.Error().Err(err).Msg("log cleanup failed")
+			}
+		}()
 	}
 
 	dbCtx, dbCancel := context.WithTimeout(context.Background(), 10*time.Second)
