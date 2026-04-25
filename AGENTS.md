@@ -36,6 +36,8 @@ make stop         # Stop all local go run / migrate processes
 - **DB driver**: pgx/v5 with sqlc-generated query code in `internal/repository/db/`
 - **Job queue**: Asynq (Redis-backed), with shared task types in `internal/tasks/` and queue config in `internal/queue/`
 - **Config**: `internal/config` loads all settings from env vars (caarlos0/env + godotenv); no `.yaml` config files
+- **JWT**: `pkg/jwtpkg` uses HS256 only; claims contain `user_id` and `roles`
+- **Validation**: `internal/validator` wraps go-playground/validator/v10
 
 ## Code Generation
 
@@ -49,33 +51,57 @@ make stop         # Stop all local go run / migrate processes
 - Logging uses `pkg/logger` (zerolog). Get a request-scoped logger via `logger.FromChiContext()` inside handlers
 - Request IDs flow from HTTP handlers into worker tasks via Asynq payload for end-to-end tracing
 - Error responses use a shared envelope: `{"error":"code","message":"...","details":[...]}` — see `internal/handler/response.go`
-- Rate limiting: 10 req/sec per IP (burst 20) via `httprate`; **skips** `/health` and `/worker/health`
+- Rate limiting: 10 req/sec per IP via `httprate.KeyByIP`; **skips** `/health` and `/worker/health`
 - 1MB global body size limit on all non-health routes (`middleware.MaxBodySize(1 << 20)`)
 - Duplicate key violations (PG code `23505`) return HTTP 409 Conflict, not 500
+- Timestamps in API responses use **RFC3339Nano**
+- Emails are normalized (trimmed + lowercased) before DB insertion in handlers
 
 ## Env & Config
 
 - Copy `.env.example` to `.env` before running locally
 - All config is env-var-driven; defaults are in `internal/config/config.go` struct tags
-- `LOG_OUTPUT=file` or `both` requires `LOG_FILE` to be set; log files are written with 0600 permissions
+- `LOG_OUTPUT=file` or `both` requires `LOG_FILE` to be set; log files are written with 0600 permissions, log dirs with 0750
 - Database and Redis pool settings are fully configurable via env vars (see `.env.example`)
+- `JWT_SECRET` must be at least 32 characters
+- All `time.Duration` config fields are validated as positive
 
 ## Database
 
 - `internal/repository/pool` is a singleton guarded by `sync.RWMutex`; call `pool.Open(ctx, cfg)` then `pool.Get()`
-- **Caveat**: `pool.Close()` currently returns no error; callers in `cmd/api/main.go` and `cmd/worker/main.go` do not handle close errors
-- Transactions: use `pool.Begin(ctx)` directly with `db.New(tx)` when needed
+- `pool.Begin(ctx)` returns a `pgx.Tx` for transactions (nil pool returns error)
+- `pool.Close()` returns void (pgxpool limitation); callers log disconnection manually
+- **Transaction support**: `BaseRepo.WithTx(tx)` and `UserRepo.WithTx(tx)` return new repo instances bound to the transaction
 - All repo methods log query duration automatically via `baseRepo`
 - `userRepo.List` caps limit at 1000; handler validates limit is positive
+- `updated_at` is auto-maintained by a Postgres trigger (`update_users_updated_at`)
 
 ## Worker Shutdown Behavior
 
-- On shutdown signal: `srv.Stop()` → `srv.Shutdown()` in a goroutine with `cfg.WorkerShutdownTimeout`
-- If shutdown times out, worker calls `pool.Close()`, logs, and exits with `os.Exit(1)`
-- `srv.Shutdown()` error is currently ignored (plan.md gap #2 still open)
+- On shutdown signal: `srv.Stop()` → drain `workerErrors` channel → `srv.Shutdown()` in a goroutine with `cfg.WorkerShutdownTimeout`
+- If shutdown times out, worker exits with `os.Exit(1)`
+- `srv.Shutdown()` error is currently ignored
+
+## Middleware Stack (Router Order)
+
+1. `middleware.RequestID` (chi built-in)
+2. `middleware.Recoverer` (chi built-in)
+3. `SecurityHeaders` — X-Content-Type-Options, X-Frame-Options, CSP, etc.
+4. `cors.Handler`
+5. `RequestLogger` — attaches request-scoped zerolog logger to context
+6. `MaxBodySize(1 << 20)` — 1MB limit
+
+**NOT present**: There is no global request timeout middleware. Use `http.Server.WriteTimeout` (10s) or handler-level `context.WithTimeout` instead.
+
+## Auth Stack
+
+- `JWTAuth` validates Bearer tokens using `pkg/jwtpkg` (HS256 only)
+- Stores `user_id` and `roles` in context via typed keys
+- `RequireRole` / `RequireAnyRole` read roles from context and return 403 if insufficient
 
 ## Known Gaps
 
 - **No tests yet** — `make test` runs `go test -race ./...` against an empty suite
 - `pool.Close()` returns void; error handling not propagated in shutdown paths
 - Worker `srv.Shutdown()` error is silently dropped
+- `IsRouteProtected` was removed; no automatic route protection introspection exists
