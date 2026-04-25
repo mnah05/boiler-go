@@ -250,19 +250,27 @@ All database operations include automatic query logging with duration tracking.
 
 ### Setup
 
-1. **Start Infrastructure**
+1. **Configure Git Hooks**
+
+   ```bash
+   make hooks
+   ```
+
+   This enables the pre-commit hook that auto-formats code and runs `go vet` + `golangci-lint` on every commit. It lives in `.githooks/` so it is tracked by Git and shared with all contributors.
+
+2. **Start Infrastructure**
 
    ```bash
    make dev
    ```
 
-2. **Run Migrations**
+3. **Run Migrations**
 
    ```bash
    make migrate-up
    ```
 
-3. **Generate SQL Code**
+4. **Generate SQL Code**
    ```bash
    make sqlc
    ```

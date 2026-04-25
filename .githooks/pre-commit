@@ -1,0 +1,31 @@
+#!/bin/sh
+# Pre-commit hook for boiler-go
+# Runs formatting, vet, and lint checks before allowing commits
+
+set -e
+
+echo "Running pre-commit checks..."
+
+# Auto-format Go files and re-stage them
+echo "→ go fmt ./..."
+FORMATTED=$(go fmt ./...)
+if [ -n "$FORMATTED" ]; then
+    echo "Formatted files:"
+    echo "$FORMATTED"
+    git add $FORMATTED
+    echo "Re-staged formatted files"
+fi
+
+# Vet for suspicious constructs
+echo "→ go vet ./..."
+go vet ./...
+
+# Lint (if golangci-lint is installed)
+if command -v golangci-lint >/dev/null 2>&1; then
+    echo "→ golangci-lint run"
+    golangci-lint run
+else
+    echo "⚠  golangci-lint not found, skipping lint checks"
+fi
+
+echo "✅ Pre-commit checks passed"

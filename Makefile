@@ -84,9 +84,14 @@ build-worker:
 build: build-api build-worker
 	@echo "Build complete"
 
+# ---------- hooks ----------
+hooks:
+	git config core.hooksPath .githooks
+	@echo "Git hooks configured from .githooks/"
+
 # ---------- clean ----------
 clean: stop dev-down
 	@rm -rf bin/
 	@echo "Cleaned up"
 
-.PHONY: api worker stop-api stop-worker stop-migrate stop fmt vet lint check test migrate-up migrate-down migrate-create migrate-force migrate-version sqlc dev dev-down dev-stop build-api build-worker build clean
+.PHONY: api worker stop-api stop-worker stop-migrate stop fmt vet lint check test hooks migrate-up migrate-down migrate-create migrate-force migrate-version sqlc dev dev-down dev-stop build-api build-worker build clean
