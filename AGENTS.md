@@ -3,33 +3,38 @@
 ## Commands
 
 ```bash
-make dev          # Start PostgreSQL + Redis via Docker
-make dev-down     # Stop Docker containers
-make api          # Run API server (requires running infra)
-make worker       # Run background worker (requires running infra)
-make test         # Run tests with race detection (no tests exist yet)
-make sqlc         # Regenerate sqlc code after changing sql/ queries or schema
-make migrate-up   # Run DB migrations (reads DATABASE_URL from .env)
-make migrate-down # Rollback one migration
+make dev             # Start PostgreSQL + Redis via Docker
+make dev-down        # Stop Docker containers
+make dev-stop        # Alias for dev-down
+make api             # Run API server (requires running infra)
+make worker          # Run background worker (requires running infra)
+make test            # Run tests with race detection (no tests exist yet)
+make sqlc            # Regenerate sqlc code after changing sql/ queries or schema
+make migrate-up      # Run DB migrations (reads DATABASE_URL from .env)
+make migrate-down    # Rollback one migration
 make migrate-create name=description   # Create new migration file
-make migrate-force version=N           # Force migration version
-make migrate-version                   # Show current migration version
-make build-api    # Build API binary to bin/api
-make build-worker # Build worker binary to bin/worker
-make build        # Build both binaries
-make stop         # Stop all local go run / migrate processes
-make hooks        # Configure git to use tracked hooks in .githooks/
-make fmt          # Run go fmt ./...
-make vet          # Run go vet ./...
-make lint         # Run golangci-lint (requires installation)
-make check        # Run fmt, vet, lint, and test in sequence
+make migrate-force version=N          # Force migration version
+make migrate-version                # Show current migration version
+make build-api       # Build API binary to bin/api
+make build-worker    # Build worker binary to bin/worker
+make build           # Build both binaries
+make stop            # Stop all local go run / migrate processes
+make stop-api        # Stop only the API server (pkill -f "go run ./cmd/api")
+make stop-worker     # Stop only the worker (pkill -f "go run ./cmd/worker")
+make stop-migrate    # Stop migrate processes (pkill -f migrate)
+make clean           # Run stop + dev-down, then remove bin/ directory
+make hooks           # Configure git to use tracked hooks in .githooks/
+make fmt             # Run go fmt ./...
+make vet             # Run go vet ./...
+make lint            # Run golangci-lint (pre-commit hook skips gracefully if not installed)
+make check           # Run fmt, vet, lint, and test in sequence
 ```
 
 ## Startup Order
 
 1. `make dev` — start infrastructure
 2. `make migrate-up` — apply schema
-3. `make sqlc` — regenerate query code if SQL changed
+3. `make sqlc` — regenerate query code if SQL changed (only needed when editing `sql/` files)
 4. `make api` / `make worker`
 
 ## Git Hooks
@@ -40,6 +45,7 @@ make check        # Run fmt, vet, lint, and test in sequence
   1. `go fmt ./...` — auto-formats Go files and re-stages them
   2. `go vet ./...` — catches suspicious constructs
   3. `golangci-lint run` — full linting suite (skips gracefully if not installed)
+- **Note**: The `make lint` target exits with error if golangci-lint is not installed; the pre-commit hook prints a warning and continues
 - Bypass in emergencies: `git commit --no-verify`
 - Contributors cloning the repo must run `make hooks` once after cloning
 
@@ -54,6 +60,9 @@ make check        # Run fmt, vet, lint, and test in sequence
 - **Config**: `internal/config` loads all settings from env vars (caarlos0/env + godotenv); no `.yaml` config files
 - **JWT**: `pkg/jwtpkg` uses HS256 only; claims contain `user_id` and `roles`
 - **Validation**: `internal/validator` wraps go-playground/validator/v10
+- **Additional major dependencies**: `google/uuid` (UUID handling), `redis/go-redis/v9` (Redis client used directly in API and worker)
+- **Scheduler**: `internal/scheduler` wraps Asynq client for task enqueueing (`Enqueue()`, `EnqueueWithID()`)
+- **Queue config**: `internal/queue` defines `QueueCritical`, `QueueDefault`, `QueueLow` queue names and priorities
 
 ## Code Generation
 
@@ -67,8 +76,9 @@ make check        # Run fmt, vet, lint, and test in sequence
 - Logging uses `pkg/logger` (zerolog). Get a request-scoped logger via `logger.FromChiContext()` inside handlers
 - Request IDs flow from HTTP handlers into worker tasks via Asynq payload for end-to-end tracing
 - Error responses use a shared envelope: `{"error":"code","message":"...","details":[...]}` — see `internal/handler/response.go`
-- Rate limiting: 10 req/sec per IP via `httprate.KeyByIP`; **skips** `/health` and `/worker/health`
-- 1MB global body size limit on all non-health routes (`middleware.MaxBodySize(1 << 20)`)
+- Success responses use: `{"success":bool,"data":...,"message":"..."}` — see `internal/handler/response.go`
+- Rate limiting: 10 req/sec per IP via `httprate.KeyByIP`; health endpoints (`/health`, `/worker/health`) are outside the rate-limited route group
+- 1MB global body size limit on all routes (`middleware.MaxBodySize(1 << 20)`)
 - Duplicate key violations (PG code `23505`) return HTTP 409 Conflict, not 500
 - Timestamps in API responses use **RFC3339Nano**
 - Emails are normalized (trimmed + lowercased) before DB insertion in handlers
@@ -81,6 +91,9 @@ make check        # Run fmt, vet, lint, and test in sequence
 - Database and Redis pool settings are fully configurable via env vars (see `.env.example`)
 - `JWT_SECRET` must be at least 32 characters
 - All `time.Duration` config fields are validated as positive
+- `CORS_ALLOWED_ORIGINS` (default `http://localhost:3000`) — comma-separated allowed origins for CORS
+- `WORKER_CONCURRENCY` (default `10`) — number of concurrent worker goroutines
+- `SECURITY_HSTS_ENABLED` (default `false`) — enable HSTS security header
 
 ## Database
 
@@ -110,11 +123,33 @@ make check        # Run fmt, vet, lint, and test in sequence
 
 **NOT present**: There is no global request timeout middleware. Use `http.Server.WriteTimeout` (10s) or handler-level `context.WithTimeout` instead.
 
+**Server timeouts** (cmd/api/main.go): `ReadTimeout: 10s`, `WriteTimeout: 10s`, `IdleTimeout: 60s`.
+
 ## Auth Stack
 
 - `JWTAuth` validates Bearer tokens using `pkg/jwtpkg` (HS256 only)
 - Stores `user_id` and `roles` in context via typed keys
 - `RequireRole` / `RequireAnyRole` read roles from context and return 403 if insufficient
+
+## API Routes
+
+### Public (no auth required)
+- `GET /health` — health check (also serves as liveness probe)
+- `GET /worker/health` — worker health check
+- `GET /worker/status` — worker status (pending/active/retry/scheduled task counts)
+- `POST /worker/ping` — enqueues a ping task to test worker connectivity
+- `POST /repo-test/users` — creates a test user (for repository layer testing)
+
+### Protected (JWT required)
+- `GET /users` — list users (query params: `limit`, `offset`)
+- `GET /users/{id}` — get user by ID
+- `POST /users` — create user
+- `PUT /users/{id}` — update user
+- `DELETE /users/{id}` — delete user (soft delete)
+
+### Auth endpoints
+- `POST /login` — authenticate and receive JWT
+- `POST /register` — register new user
 
 ## Known Gaps
 
