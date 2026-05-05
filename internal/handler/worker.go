@@ -129,8 +129,8 @@ func (h *WorkerHandler) Status(w http.ResponseWriter, r *http.Request) {
 	dbStatus, redisStatus := checkDependencies(ctx, h.db, h.redis)
 
 	status := map[string]string{
-		"redis":    dbStatus,
-		"database": redisStatus,
+		"redis":    redisStatus,
+		"database": dbStatus,
 	}
 	if dbStatus == "down" || redisStatus == "down" {
 		overall = http.StatusServiceUnavailable
