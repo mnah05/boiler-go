@@ -9,8 +9,8 @@ import (
 	"boiler-go/internal/queue"
 	"boiler-go/internal/scheduler"
 	"boiler-go/internal/tasks"
-	"boiler-go/internal/validator"
 	"boiler-go/pkg/logger"
+	"boiler-go/pkg/validator"
 
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/hibiken/asynq"

@@ -11,8 +11,8 @@ import (
 
 	"boiler-go/internal/repository/db"
 	"boiler-go/internal/repository/repo"
-	"boiler-go/internal/validator"
 	"boiler-go/pkg/logger"
+	"boiler-go/pkg/validator"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"

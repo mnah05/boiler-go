@@ -151,7 +151,7 @@ boiler-go/
 | `internal/queue` | Queue configuration | `Names()`, `Priorities()` |
 | `internal/scheduler` | Task enqueueing | `Client.Enqueue()`, `Client.EnqueueWithID()` |
 | `internal/tasks` | Task type constants | `TypeWorkerPing` |
-| `internal/validator` | Struct validation | `ValidateStruct()`, `GetValidationErrors()` |
+| `pkg/validator` | Struct validation | `ValidateStruct()`, `GetValidationErrors()` |
 | `pkg/jwtpkg` | JWT token generation and parsing | `GenerateToken()`, `ParseToken()`, `NewClaims()` |
 | `pkg/logger` | Logging utilities | `New()`, `Global()`, `FromChiContext()` |
 

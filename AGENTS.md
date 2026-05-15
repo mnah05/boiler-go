@@ -59,7 +59,7 @@ make check           # Run fmt, vet, lint, and test in sequence
 - **Job queue**: Asynq (Redis-backed), with shared task types in `internal/tasks/` and queue config in `internal/queue/`
 - **Config**: `internal/config` loads all settings from env vars (caarlos0/env + godotenv); no `.yaml` config files
 - **JWT**: `pkg/jwtpkg` uses HS256 only; claims contain `user_id` and `roles`
-- **Validation**: `internal/validator` wraps go-playground/validator/v10
+- **Validation**: `pkg/validator` wraps go-playground/validator/v10
 - **Additional major dependencies**: `google/uuid` (UUID handling), `redis/go-redis/v9` (Redis client used directly in API and worker)
 - **Scheduler**: `internal/scheduler` wraps Asynq client for task enqueueing (`Enqueue()`, `EnqueueWithID()`)
 - **Queue config**: `internal/queue` defines `QueueCritical`, `QueueDefault`, `QueueLow` queue names and priorities
