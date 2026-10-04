@@ -2,20 +2,14 @@
 api:
 	go run ./cmd/api
 
-worker:
-	go run ./cmd/worker
-
 # ---------- stop ----------
 stop-api:
 	pkill -f "go run ./cmd/api" || echo "API not running"
 
-stop-worker:
-	pkill -f "go run ./cmd/worker" || echo "Worker not running"
-
 stop-migrate:
 	pkill -f "migrate" || echo "No migrations running"
 
-stop: stop-api stop-worker stop-migrate
+stop: stop-api stop-migrate
 	@echo "All services stopped"
 
 # ---------- format / lint ----------
@@ -78,10 +72,7 @@ dev-stop: dev-down
 build-api:
 	go build -o bin/api ./cmd/api
 
-build-worker:
-	go build -o bin/worker ./cmd/worker
-
-build: build-api build-worker
+build: build-api
 	@echo "Build complete"
 
 # ---------- hooks ----------
@@ -94,4 +85,4 @@ clean: stop dev-down
 	@rm -rf bin/
 	@echo "Cleaned up"
 
-.PHONY: api worker stop-api stop-worker stop-migrate stop fmt vet lint check test hooks migrate-up migrate-down migrate-create migrate-force migrate-version sqlc dev dev-down dev-stop build-api build-worker build clean
+.PHONY: api stop-api stop-migrate stop fmt vet lint check test hooks migrate-up migrate-down migrate-create migrate-force migrate-version sqlc dev dev-down dev-stop build-api build clean

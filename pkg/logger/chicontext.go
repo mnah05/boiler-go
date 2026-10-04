@@ -6,12 +6,12 @@ import (
 	"github.com/rs/zerolog"
 )
 
-type chiContextKey string
+type contextKey string
 
-const chiLoggerKey chiContextKey = "logger"
+const loggerKey contextKey = "logger"
 
-func FromChiContext(ctx context.Context) zerolog.Logger {
-	if log, ok := ctx.Value(chiLoggerKey).(zerolog.Logger); ok {
+func FromContext(ctx context.Context) zerolog.Logger {
+	if log, ok := ctx.Value(loggerKey).(zerolog.Logger); ok {
 		return log
 	}
 	g := Global()
@@ -19,6 +19,13 @@ func FromChiContext(ctx context.Context) zerolog.Logger {
 	return g
 }
 
+func WithContext(ctx context.Context, log zerolog.Logger) context.Context {
+	return context.WithValue(ctx, loggerKey, log)
+}
+
+// FromChiContext and WithChiContext are retained temporarily for callers using
+// a net/http handler outside Echo.
+func FromChiContext(ctx context.Context) zerolog.Logger { return FromContext(ctx) }
 func WithChiContext(ctx context.Context, log zerolog.Logger) context.Context {
-	return context.WithValue(ctx, chiLoggerKey, log)
+	return WithContext(ctx, log)
 }

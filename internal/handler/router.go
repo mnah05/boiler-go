@@ -4,82 +4,28 @@ import (
 	"net/http"
 	"time"
 
+	"boiler-go/internal/cache"
 	"boiler-go/internal/config"
 	custommiddleware "boiler-go/internal/middleware"
-	"boiler-go/internal/scheduler"
 
-	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
-	"github.com/go-chi/cors"
-	"github.com/go-chi/httprate"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
+	"github.com/jmoiron/sqlx"
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 	"github.com/rs/zerolog"
 )
 
-func NewRouter(log zerolog.Logger, cfg *config.Config, db *pgxpool.Pool, redis *redis.Client, scheduler *scheduler.Client) http.Handler {
-	r := chi.NewRouter()
-
-	// Global middleware stack
-	r.Use(middleware.RequestID)
-	r.Use(middleware.Recoverer)
-	r.Use(custommiddleware.SecurityHeaders(custommiddleware.SecurityConfig{
-		HSTSEnabled: cfg.SecurityHSTSEnabled,
-	}))
-	r.Use(cors.Handler(cors.Options{
-		AllowedOrigins: cfg.CORSAllowedOrigins,
-		AllowedMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders: []string{"Accept", "Authorization", "Content-Type", "X-Request-ID"},
-		ExposedHeaders: []string{"Link", "X-Request-ID"},
-		MaxAge:         300,
-	}))
-	r.Use(custommiddleware.RequestLogger(log))
-	r.Use(custommiddleware.MaxBodySize(1 << 20)) // 1MB global limit
-
-	// Global 404 handler
-	r.NotFound(NotFoundHandler)
-
-	// Health endpoints (excluded from rate limiting and auth)
-	health := NewHealthHandler(db, redis, cfg.HealthCheckTimeout)
-	worker := NewWorkerHandler(scheduler, db, redis)
-	r.Get("/health", health.Check)
-	r.Get("/worker/health", worker.Health)
-
-	// JWT auth middleware (for protected routes)
-	jwtAuth := custommiddleware.JWTAuth(custommiddleware.JWTConfig{
-		Secret: []byte(cfg.JWTSecret),
-	})
-
-	// Rate-limited API routes
-	r.Group(func(r chi.Router) {
-		r.Use(httprate.Limit(10, time.Second,
-			httprate.WithKeyFuncs(httprate.KeyByIP),
-			httprate.WithLimitHandler(func(w http.ResponseWriter, r *http.Request) {
-				_ = NewErrorResponse(w, http.StatusTooManyRequests, "rate_limit_exceeded", "too many requests")
-			}),
-		))
-
-		// Public routes (rate limited, no auth)
-		r.Route("/worker", func(r chi.Router) {
-			r.Get("/status", worker.Status)
-			r.Post("/ping", worker.Ping)
-		})
-
-		// Protected routes (rate limited + auth)
-		r.Group(func(r chi.Router) {
-			r.Use(jwtAuth)
-
-			repoTest := NewRepoTestHandler(db, log)
-			r.Route("/repo-test", func(r chi.Router) {
-				r.Post("/users", repoTest.CreateUser)
-				r.Get("/users", repoTest.ListUsers)
-				r.Get("/users/get", repoTest.GetUser)
-			})
-
-			// Example admin-only route
-			// r.With(custommiddleware.RequireRole("admin")).Get("/admin", adminHandler)
-		})
-	})
-
-	return r
+func NewRouter(log zerolog.Logger, cfg *config.Config, db *sqlx.DB, cache cache.Store) *echo.Echo {
+	e := echo.New()
+	e.HideBanner = true
+	e.HTTPErrorHandler = HTTPErrorHandler
+	e.Use(middleware.RequestID(), middleware.Recover(), echo.WrapMiddleware(custommiddleware.SecurityHeaders(custommiddleware.SecurityConfig{HSTSEnabled: cfg.SecurityHSTSEnabled})), middleware.CORSWithConfig(middleware.CORSConfig{AllowOrigins: cfg.CORSAllowedOrigins, AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions}, AllowHeaders: []string{echo.HeaderAccept, echo.HeaderAuthorization, echo.HeaderContentType, echo.HeaderXRequestID}, ExposeHeaders: []string{"Link", echo.HeaderXRequestID}, MaxAge: 300}), custommiddleware.RequestLogger(log), echo.WrapMiddleware(custommiddleware.MaxBodySize(1<<20)))
+	health := NewHealthHandler(db, cache, cfg.HealthCheckTimeout)
+	e.GET("/health", health.Check)
+	api := e.Group("", middleware.RateLimiter(middleware.NewRateLimiterMemoryStoreWithConfig(middleware.RateLimiterMemoryStoreConfig{Rate: 10, Burst: 10, ExpiresIn: time.Second})))
+	protected := api.Group("", echo.WrapMiddleware(custommiddleware.JWTAuth(custommiddleware.JWTConfig{Secret: []byte(cfg.JWTSecret)})))
+	repoTest := NewRepoTestHandler(db, log)
+	protected.POST("/repo-test/users", repoTest.CreateUser)
+	protected.GET("/repo-test/users", repoTest.ListUsers)
+	protected.GET("/repo-test/users/get", repoTest.GetUser)
+	return e
 }

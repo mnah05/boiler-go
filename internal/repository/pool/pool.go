@@ -3,15 +3,16 @@ package pool
 import (
 	"boiler-go/internal/config"
 	"context"
+	"database/sql"
 	"fmt"
 	"sync"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jmoiron/sqlx"
 )
 
 var (
-	pool *pgxpool.Pool
+	pool *sqlx.DB
 	mu   sync.RWMutex
 )
 
@@ -23,22 +24,16 @@ func Open(ctx context.Context, cfg *config.Config) error {
 		return fmt.Errorf("database pool already initialized")
 	}
 
-	poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
+	newPool, err := sqlx.Open("pgx", cfg.DatabaseURL)
 	if err != nil {
-		return fmt.Errorf("failed to parse database config: %w", err)
+		return fmt.Errorf("open database: %w", err)
 	}
-	poolConfig.MaxConns = cfg.DBMaxConns
-	poolConfig.MinConns = cfg.DBMinConns
-	poolConfig.MaxConnLifetime = cfg.DBMaxConnLifetime
-	poolConfig.MaxConnIdleTime = cfg.DBMaxConnIdleTime
-	poolConfig.HealthCheckPeriod = cfg.DBHealthCheckPeriod
+	newPool.SetMaxOpenConns(int(cfg.DBMaxConns))
+	newPool.SetMaxIdleConns(int(cfg.DBMaxIdleConns))
+	newPool.SetConnMaxLifetime(cfg.DBMaxConnLifetime)
+	newPool.SetConnMaxIdleTime(cfg.DBMaxConnIdleTime)
 
-	newPool, err := pgxpool.NewWithConfig(ctx, poolConfig)
-	if err != nil {
-		return fmt.Errorf("failed to create pool: %w", err)
-	}
-
-	if err := newPool.Ping(ctx); err != nil {
+	if err := newPool.DB.PingContext(ctx); err != nil {
 		newPool.Close() // Clean up the pool on ping failure
 		return fmt.Errorf("database unreachable: %w", err)
 	}
@@ -47,18 +42,18 @@ func Open(ctx context.Context, cfg *config.Config) error {
 	return nil
 }
 
-func Get() *pgxpool.Pool {
+func Get() *sqlx.DB {
 	mu.RLock()
 	defer mu.RUnlock()
 	return pool
 }
 
-func Begin(ctx context.Context) (pgx.Tx, error) {
+func Begin(ctx context.Context) (*sql.Tx, error) {
 	p := Get()
 	if p == nil {
 		return nil, fmt.Errorf("database pool not initialized")
 	}
-	return p.Begin(ctx)
+	return p.DB.BeginTx(ctx, nil)
 }
 
 func Close() {

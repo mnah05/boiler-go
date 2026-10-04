@@ -16,27 +16,28 @@ type Config struct {
 
 	DatabaseURL string `env:"DATABASE_URL,required"`
 
-	RedisAddr     string `env:"REDIS_ADDR,required"`
+	// Redis is optional for HTTP cache features.
+	RedisAddr     string `env:"REDIS_ADDR" envDefault:"localhost:6379"`
 	RedisPassword string `env:"REDIS_PASSWORD"`
 	RedisDB       int    `env:"REDIS_DB" envDefault:"0"`
 
-	WorkerConcurrency int `env:"WORKER_CONCURRENCY" envDefault:"10"`
+	DBMaxConns        int32         `env:"DB_MAX_CONNS" envDefault:"15"`
+	DBMaxIdleConns    int32         `env:"DB_MAX_IDLE_CONNS" envDefault:"5"`
+	DBMaxConnLifetime time.Duration `env:"DB_MAX_CONN_LIFETIME" envDefault:"30m"`
+	DBMaxConnIdleTime time.Duration `env:"DB_MAX_CONN_IDLE_TIME" envDefault:"5m"`
 
-	DBMaxConns          int32         `env:"DB_MAX_CONNS" envDefault:"15"`
-	DBMinConns          int32         `env:"DB_MIN_CONNS" envDefault:"2"`
-	DBMaxConnLifetime   time.Duration `env:"DB_MAX_CONN_LIFETIME" envDefault:"30m"`
-	DBMaxConnIdleTime   time.Duration `env:"DB_MAX_CONN_IDLE_TIME" envDefault:"5m"`
-	DBHealthCheckPeriod time.Duration `env:"DB_HEALTH_CHECK_PERIOD" envDefault:"1m"`
+	RedisPoolSize          int           `env:"REDIS_POOL_SIZE" envDefault:"20"`
+	RedisMinIdleConns      int           `env:"REDIS_MIN_IDLE_CONNS" envDefault:"5"`
+	RedisDialTimeout       time.Duration `env:"REDIS_DIAL_TIMEOUT" envDefault:"5s"`
+	RedisReadTimeout       time.Duration `env:"REDIS_READ_TIMEOUT" envDefault:"3s"`
+	RedisWriteTimeout      time.Duration `env:"REDIS_WRITE_TIMEOUT" envDefault:"3s"`
+	RedisReconnectInterval time.Duration `env:"REDIS_RECONNECT_INTERVAL" envDefault:"10s"`
 
-	RedisPoolSize     int           `env:"REDIS_POOL_SIZE" envDefault:"20"`
-	RedisMinIdleConns int           `env:"REDIS_MIN_IDLE_CONNS" envDefault:"5"`
-	RedisDialTimeout  time.Duration `env:"REDIS_DIAL_TIMEOUT" envDefault:"5s"`
-	RedisReadTimeout  time.Duration `env:"REDIS_READ_TIMEOUT" envDefault:"3s"`
-	RedisWriteTimeout time.Duration `env:"REDIS_WRITE_TIMEOUT" envDefault:"3s"`
+	ResendAPIKey string `env:"RESEND_API_KEY"`
+	ResendFrom   string `env:"RESEND_FROM"`
 
-	HealthCheckTimeout    time.Duration `env:"HEALTH_CHECK_TIMEOUT" envDefault:"2s"`
-	APIShutdownTimeout    time.Duration `env:"API_SHUTDOWN_TIMEOUT" envDefault:"10s"`
-	WorkerShutdownTimeout time.Duration `env:"WORKER_SHUTDOWN_TIMEOUT" envDefault:"30s"`
+	HealthCheckTimeout time.Duration `env:"HEALTH_CHECK_TIMEOUT" envDefault:"2s"`
+	APIShutdownTimeout time.Duration `env:"API_SHUTDOWN_TIMEOUT" envDefault:"10s"`
 
 	LogOutput string `env:"LOG_OUTPUT" envDefault:"stdout"`
 	LogFile   string `env:"LOG_FILE"`
@@ -68,9 +69,6 @@ func (c *Config) validate() error {
 	if err := validateDatabaseURL(c.DatabaseURL); err != nil {
 		return fmt.Errorf("invalid DATABASE_URL: %w", err)
 	}
-	if c.RedisAddr == "" {
-		return fmt.Errorf("REDIS_ADDR is required")
-	}
 	if c.RedisDB < 0 || c.RedisDB > 15 {
 		return fmt.Errorf("REDIS_DB must be between 0 and 15")
 	}
@@ -83,29 +81,20 @@ func (c *Config) validate() error {
 	if c.APIShutdownTimeout <= 0 {
 		return fmt.Errorf("API_SHUTDOWN_TIMEOUT must be positive")
 	}
-	if c.WorkerShutdownTimeout <= 0 {
-		return fmt.Errorf("WORKER_SHUTDOWN_TIMEOUT must be positive")
-	}
-	if c.WorkerConcurrency <= 0 {
-		return fmt.Errorf("WORKER_CONCURRENCY must be positive")
-	}
 	if c.DBMaxConns <= 0 {
 		return fmt.Errorf("DB_MAX_CONNS must be positive")
 	}
-	if c.DBMinConns < 0 {
-		return fmt.Errorf("DB_MIN_CONNS must be non-negative")
+	if c.DBMaxIdleConns < 0 {
+		return fmt.Errorf("DB_MAX_IDLE_CONNS must be non-negative")
 	}
-	if c.DBMinConns > c.DBMaxConns {
-		return fmt.Errorf("DB_MIN_CONNS cannot exceed DB_MAX_CONNS")
+	if c.DBMaxIdleConns > c.DBMaxConns {
+		return fmt.Errorf("DB_MAX_IDLE_CONNS cannot exceed DB_MAX_CONNS")
 	}
 	if c.DBMaxConnLifetime <= 0 {
 		return fmt.Errorf("DB_MAX_CONN_LIFETIME must be positive")
 	}
 	if c.DBMaxConnIdleTime <= 0 {
 		return fmt.Errorf("DB_MAX_CONN_IDLE_TIME must be positive")
-	}
-	if c.DBHealthCheckPeriod <= 0 {
-		return fmt.Errorf("DB_HEALTH_CHECK_PERIOD must be positive")
 	}
 	if c.RedisPoolSize <= 0 {
 		return fmt.Errorf("REDIS_POOL_SIZE must be positive")
@@ -124,6 +113,12 @@ func (c *Config) validate() error {
 	}
 	if c.RedisWriteTimeout <= 0 {
 		return fmt.Errorf("REDIS_WRITE_TIMEOUT must be positive")
+	}
+	if c.RedisReconnectInterval <= 0 {
+		return fmt.Errorf("REDIS_RECONNECT_INTERVAL must be positive")
+	}
+	if (c.ResendAPIKey == "") != (c.ResendFrom == "") {
+		return fmt.Errorf("RESEND_API_KEY and RESEND_FROM must be set together")
 	}
 	if c.LogOutput != "stdout" && c.LogOutput != "file" && c.LogOutput != "both" {
 		return fmt.Errorf("LOG_OUTPUT must be one of: stdout, file, both")

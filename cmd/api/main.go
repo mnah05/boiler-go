@@ -9,14 +9,12 @@ import (
 	"syscall"
 	"time"
 
+	"boiler-go/internal/cache"
 	"boiler-go/internal/config"
 	"boiler-go/internal/handler"
+	"boiler-go/internal/mailer"
 	"boiler-go/internal/repository/pool"
-	"boiler-go/internal/scheduler"
 	"boiler-go/pkg/logger"
-
-	"github.com/hibiken/asynq"
-	"github.com/redis/go-redis/v9"
 )
 
 func main() {
@@ -55,47 +53,19 @@ func main() {
 
 	dbPool := pool.Get()
 
-	rdb := redis.NewClient(&redis.Options{
-		Addr:         cfg.RedisAddr,
-		Password:     cfg.RedisPassword,
-		DB:           cfg.RedisDB,
-		PoolSize:     cfg.RedisPoolSize,
-		MinIdleConns: cfg.RedisMinIdleConns,
-		DialTimeout:  cfg.RedisDialTimeout,
-		ReadTimeout:  cfg.RedisReadTimeout,
-		WriteTimeout: cfg.RedisWriteTimeout,
-	})
-
-	redisCtx, redisCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer redisCancel()
-	if err := rdb.Ping(redisCtx).Err(); err != nil {
-		logg.Error().Err(err).Msg("redis connection failed")
-		os.Exit(1)
-	}
-	logg.Info().Msg("redis connected")
+	cacheStore := cache.New(cfg, logg)
+	logg.Info().Msg("redis cache monitor started")
 	defer func() {
-		if err := rdb.Close(); err != nil {
-			logg.Error().Err(err).Msg("redis close failed")
-		} else {
-			logg.Info().Msg("redis disconnected")
+		if err := cacheStore.Close(); err != nil {
+			logg.Error().Err(err).Msg("redis cache close failed")
 		}
 	}()
 
-	schedulerClient := scheduler.NewClient(asynq.RedisClientOpt{
-		Addr:     cfg.RedisAddr,
-		Password: cfg.RedisPassword,
-		DB:       cfg.RedisDB,
-	})
-	logg.Info().Msg("scheduler client initialized")
-	defer func() {
-		if err := schedulerClient.Close(); err != nil {
-			logg.Error().Err(err).Msg("scheduler client close failed")
-		} else {
-			logg.Info().Msg("scheduler client closed")
-		}
-	}()
+	// The interface is wired now; domain services can depend on it without
+	// knowing whether Resend is configured in a given environment.
+	_ = mailer.New(cfg)
 
-	router := handler.NewRouter(logg, cfg, dbPool, rdb, schedulerClient)
+	router := handler.NewRouter(logg, cfg, dbPool, cacheStore)
 
 	server := &http.Server{
 		Addr:           cfg.AppHost + ":" + cfg.AppPort,

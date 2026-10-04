@@ -8,9 +8,9 @@ import (
 
 	"boiler-go/internal/repository/db"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgtype"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"database/sql"
+	"github.com/google/uuid"
+	"github.com/jmoiron/sqlx"
 	"github.com/rs/zerolog"
 )
 
@@ -20,13 +20,13 @@ type UserRepo struct {
 	*BaseRepo
 }
 
-func NewUserRepo(pool *pgxpool.Pool, log zerolog.Logger) *UserRepo {
+func NewUserRepo(pool *sqlx.DB, log zerolog.Logger) *UserRepo {
 	return &UserRepo{
 		BaseRepo: NewBaseRepo(pool, log),
 	}
 }
 
-func (r *UserRepo) WithTx(tx pgx.Tx) *UserRepo {
+func (r *UserRepo) WithTx(tx *sql.Tx) *UserRepo {
 	return &UserRepo{BaseRepo: r.BaseRepo.WithTx(tx)}
 }
 
@@ -41,13 +41,13 @@ func (r *UserRepo) Create(ctx context.Context, params db.CreateUserParams) (db.U
 	return user, nil
 }
 
-func (r *UserRepo) GetByID(ctx context.Context, id pgtype.UUID) (db.User, error) {
+func (r *UserRepo) GetByID(ctx context.Context, id uuid.UUID) (db.User, error) {
 	start := time.Now()
 	user, err := r.queries.GetUserByID(ctx, id)
 	r.logQuery("GetByID", "users", err, start)
 
 	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
+		if errors.Is(err, sql.ErrNoRows) {
 			return db.User{}, ErrUserNotFound
 		}
 		return db.User{}, fmt.Errorf("user repo: get by id: %w", err)

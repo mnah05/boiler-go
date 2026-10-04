@@ -1,22 +1,22 @@
 package repo
 
 import (
+	"database/sql"
 	"time"
 
 	"boiler-go/internal/repository/db"
 
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/jmoiron/sqlx"
 	"github.com/rs/zerolog"
 )
 
 type BaseRepo struct {
 	queries *db.Queries
-	pool    *pgxpool.Pool
+	pool    *sqlx.DB
 	log     zerolog.Logger
 }
 
-func NewBaseRepo(pool *pgxpool.Pool, log zerolog.Logger) *BaseRepo {
+func NewBaseRepo(pool *sqlx.DB, log zerolog.Logger) *BaseRepo {
 	return &BaseRepo{
 		queries: db.New(pool),
 		pool:    pool,
@@ -28,7 +28,7 @@ func (r *BaseRepo) Queries() *db.Queries {
 	return r.queries
 }
 
-func (r *BaseRepo) WithTx(tx pgx.Tx) *BaseRepo {
+func (r *BaseRepo) WithTx(tx *sql.Tx) *BaseRepo {
 	return &BaseRepo{
 		queries: db.New(tx),
 		pool:    r.pool,

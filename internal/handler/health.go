@@ -2,95 +2,53 @@ package handler
 
 import (
 	"context"
-	"net/http"
 	"sync"
 	"time"
 
+	"boiler-go/internal/cache"
 	"boiler-go/pkg/logger"
 
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
+	"github.com/jmoiron/sqlx"
+	"github.com/labstack/echo/v4"
 )
 
 type HealthHandler struct {
-	db      *pgxpool.Pool
-	redis   *redis.Client
+	db      *sqlx.DB
+	cache   cache.Store
 	timeout time.Duration
 }
 
-func NewHealthHandler(db *pgxpool.Pool, redis *redis.Client, timeout time.Duration) *HealthHandler {
-	return &HealthHandler{
-		db:      db,
-		redis:   redis,
-		timeout: timeout,
-	}
+func NewHealthHandler(db *sqlx.DB, cache cache.Store, timeout time.Duration) *HealthHandler {
+	return &HealthHandler{db: db, cache: cache, timeout: timeout}
 }
 
-// checkDependencies pings DB and Redis concurrently and returns their statuses.
-func checkDependencies(ctx context.Context, db *pgxpool.Pool, rdb *redis.Client) (dbStatus, redisStatus string) {
+func checkDependencies(ctx context.Context, db *sqlx.DB, cache cache.Store) (dbStatus, cacheStatus string) {
 	var wg sync.WaitGroup
-	wg.Add(2)
-
-	var dbErr, redisErr error
-
-	go func() {
-		defer wg.Done()
-		dbErr = db.Ping(ctx)
-	}()
-
-	go func() {
-		defer wg.Done()
-		redisErr = rdb.Ping(ctx).Err()
-	}()
-
+	wg.Add(1)
+	var dbErr error
+	go func() { defer wg.Done(); dbErr = db.PingContext(ctx) }()
+	cacheStatus = "down"
+	if cache.Available() {
+		cacheStatus = "up"
+	}
 	wg.Wait()
-
+	dbStatus = "up"
 	if dbErr != nil {
 		dbStatus = "down"
-	} else {
-		dbStatus = "up"
 	}
-
-	if redisErr != nil {
-		redisStatus = "down"
-	} else {
-		redisStatus = "up"
-	}
-
 	return
 }
 
-func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
+func (h *HealthHandler) Check(c echo.Context) error {
 	start := time.Now()
-
-	ctx, cancel := context.WithTimeout(r.Context(), h.timeout)
+	ctx, cancel := context.WithTimeout(c.Request().Context(), h.timeout)
 	defer cancel()
-
-	log := logger.FromChiContext(r.Context())
-
-	overall := http.StatusOK
-	dbStatus, redisStatus := checkDependencies(ctx, h.db, h.redis)
-
-	if dbStatus == "down" || redisStatus == "down" {
-		overall = http.StatusServiceUnavailable
+	dbStatus, cacheStatus := checkDependencies(ctx, h.db, h.cache)
+	status := 200
+	if dbStatus == "down" {
+		status = 503
 	}
-
-	duration := time.Since(start)
-
-	log.Info().
-		Dur("duration", duration).
-		Str("database", dbStatus).
-		Str("redis", redisStatus).
-		Msg("health check completed")
-
-	if err := WriteJSON(w, overall, map[string]any{
-		"status": map[string]string{
-			"database": dbStatus,
-			"redis":    redisStatus,
-		},
-		"checked":  time.Now().UTC(),
-		"duration": duration.Milliseconds(),
-	}); err != nil {
-		log.Error().Err(err).Msg("failed to write health check response")
-	}
+	log := logger.FromContext(c.Request().Context())
+	log.Info().Dur("duration", time.Since(start)).Str("database", dbStatus).Str("redis_cache", cacheStatus).Msg("health check completed")
+	return c.JSON(status, map[string]any{"status": map[string]string{"database": dbStatus, "redis_cache": cacheStatus}, "checked": time.Now().UTC(), "duration": time.Since(start).Milliseconds()})
 }

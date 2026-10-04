@@ -1,53 +1,40 @@
 package handler
 
-import (
-	"encoding/json"
-	"net/http"
-)
+import "github.com/labstack/echo/v4"
 
 type ErrorResponse struct {
-	Error   string      `json:"error"`
-	Message string      `json:"message,omitempty"`
-	Details interface{} `json:"details,omitempty"`
+	Error   string `json:"error"`
+	Message string `json:"message,omitempty"`
+	Details any    `json:"details,omitempty"`
 }
-
 type SuccessResponse struct {
-	Success bool        `json:"success"`
-	Data    interface{} `json:"data,omitempty"`
-	Message string      `json:"message,omitempty"`
+	Success bool   `json:"success"`
+	Data    any    `json:"data,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+type APIError struct {
+	Status int
+	Body   ErrorResponse
 }
 
-func WriteJSON(w http.ResponseWriter, statusCode int, data interface{}) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	return json.NewEncoder(w).Encode(data)
+func (e *APIError) Error() string { return e.Body.Message }
+func NewEchoError(status int, code, message string) error {
+	return &APIError{Status: status, Body: ErrorResponse{Error: code, Message: message}}
 }
-
-func NewErrorResponse(w http.ResponseWriter, statusCode int, error string, message string) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	return json.NewEncoder(w).Encode(ErrorResponse{
-		Error:   error,
-		Message: message,
-	})
+func NewEchoErrorWithDetails(status int, code, message string, details any) error {
+	return &APIError{Status: status, Body: ErrorResponse{Error: code, Message: message, Details: details}}
 }
-
-func NewErrorResponseWithDetails(w http.ResponseWriter, statusCode int, error string, message string, details interface{}) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	return json.NewEncoder(w).Encode(ErrorResponse{
-		Error:   error,
-		Message: message,
-		Details: details,
-	})
-}
-
-func NewSuccessResponse(w http.ResponseWriter, statusCode int, data interface{}, message string) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	return json.NewEncoder(w).Encode(SuccessResponse{
-		Success: true,
-		Data:    data,
-		Message: message,
-	})
+func HTTPErrorHandler(err error, c echo.Context) {
+	if c.Response().Committed {
+		return
+	}
+	if apiErr, ok := err.(*APIError); ok {
+		_ = c.JSON(apiErr.Status, apiErr.Body)
+		return
+	}
+	if httpErr, ok := err.(*echo.HTTPError); ok {
+		_ = c.JSON(httpErr.Code, ErrorResponse{Error: "http_error", Message: "request failed"})
+		return
+	}
+	_ = c.JSON(500, ErrorResponse{Error: "internal_error", Message: "internal server error"})
 }
