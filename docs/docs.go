@@ -264,6 +264,10 @@ const docTemplate = `{
                 "message": {
                     "type": "string",
                     "example": "invalid request body"
+                },
+                "request_id": {
+                    "type": "string",
+                    "example": "3f2b1c9d8e7a6b5c4d3e2f1a0b9c8d7e"
                 }
             }
         },

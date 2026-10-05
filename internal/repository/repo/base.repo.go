@@ -1,10 +1,12 @@
 package repo
 
 import (
+	"context"
 	"database/sql"
 	"time"
 
 	"boiler-go/internal/repository/db"
+	"boiler-go/pkg/logger"
 
 	"github.com/jmoiron/sqlx"
 	"github.com/rs/zerolog"
@@ -36,11 +38,19 @@ func (r *BaseRepo) WithTx(tx *sql.Tx) *BaseRepo {
 	}
 }
 
-func (r *BaseRepo) logQuery(queryName, table string, err error, start time.Time) {
+// logQuery records query timing on the request-scoped logger when the context
+// carries one, so a failed or slow query can be tied back to the request that
+// caused it. It falls back to the repository's own logger for background work.
+func (r *BaseRepo) logQuery(ctx context.Context, queryName, table string, err error, start time.Time) {
+	log := r.log
+	if requestLog, ok := logger.FromContextOK(ctx); ok {
+		log = requestLog
+	}
+
 	elapsed := time.Since(start)
 
 	if err != nil {
-		r.log.Error().
+		log.Error().
 			Err(err).
 			Str("query", queryName).
 			Str("table", table).
@@ -49,7 +59,7 @@ func (r *BaseRepo) logQuery(queryName, table string, err error, start time.Time)
 		return
 	}
 
-	r.log.Debug().
+	log.Debug().
 		Str("query", queryName).
 		Str("table", table).
 		Dur("duration", elapsed).

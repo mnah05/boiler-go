@@ -33,7 +33,7 @@ func (r *UserRepo) WithTx(tx *sql.Tx) *UserRepo {
 func (r *UserRepo) Create(ctx context.Context, params db.CreateUserParams) (db.User, error) {
 	start := time.Now()
 	user, err := r.queries.CreateUser(ctx, params)
-	r.logQuery("Create", "users", err, start)
+	r.logQuery(ctx, "Create", "users", err, start)
 
 	if err != nil {
 		return db.User{}, fmt.Errorf("user repo: create: %w", err)
@@ -44,7 +44,7 @@ func (r *UserRepo) Create(ctx context.Context, params db.CreateUserParams) (db.U
 func (r *UserRepo) GetByID(ctx context.Context, id uuid.UUID) (db.User, error) {
 	start := time.Now()
 	user, err := r.queries.GetUserByID(ctx, id)
-	r.logQuery("GetByID", "users", err, start)
+	r.logQuery(ctx, "GetByID", "users", err, start)
 
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -65,7 +65,7 @@ func (r *UserRepo) List(ctx context.Context, limit int32) ([]db.User, error) {
 
 	start := time.Now()
 	users, err := r.queries.ListUsers(ctx, limit)
-	r.logQuery("List", "users", err, start)
+	r.logQuery(ctx, "List", "users", err, start)
 
 	if err != nil {
 		return nil, fmt.Errorf("user repo: list: %w", err)

@@ -20,7 +20,7 @@ func NewRouter(log zerolog.Logger, cfg *config.Config, db *sqlx.DB, cache cache.
 	e := echo.New()
 	e.HideBanner = true
 	e.HTTPErrorHandler = HTTPErrorHandler
-	e.Use(middleware.RequestID(), middleware.Recover(), echo.WrapMiddleware(custommiddleware.SecurityHeaders(custommiddleware.SecurityConfig{HSTSEnabled: cfg.SecurityHSTSEnabled})), middleware.CORSWithConfig(middleware.CORSConfig{AllowOrigins: cfg.CORSAllowedOrigins, AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions}, AllowHeaders: []string{echo.HeaderAccept, echo.HeaderAuthorization, echo.HeaderContentType, echo.HeaderXRequestID}, ExposeHeaders: []string{"Link", echo.HeaderXRequestID}, MaxAge: 300}), custommiddleware.RequestLogger(log), echo.WrapMiddleware(custommiddleware.MaxBodySize(1<<20)))
+	e.Use(middleware.RequestID(), middleware.RecoverWithConfig(middleware.RecoverConfig{LogErrorFunc: custommiddleware.PanicLogger()}), echo.WrapMiddleware(custommiddleware.SecurityHeaders(custommiddleware.SecurityConfig{HSTSEnabled: cfg.SecurityHSTSEnabled})), middleware.CORSWithConfig(middleware.CORSConfig{AllowOrigins: cfg.CORSAllowedOrigins, AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions}, AllowHeaders: []string{echo.HeaderAccept, echo.HeaderAuthorization, echo.HeaderContentType, echo.HeaderXRequestID}, ExposeHeaders: []string{"Link", echo.HeaderXRequestID}, MaxAge: 300}), custommiddleware.RequestLogger(log), echo.WrapMiddleware(custommiddleware.MaxBodySize(1<<20)))
 	health := NewHealthHandler(db, cache, cfg.HealthCheckTimeout)
 	e.GET("/health", health.Check)
 	e.GET("/swagger/*", echoSwagger.WrapHandler)

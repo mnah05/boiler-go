@@ -51,6 +51,9 @@ func main() {
 			}
 		}()
 	}
+	// Logs emitted without a request context fall back to this logger, so they
+	// reach the configured sink rather than a separate default stdout logger.
+	logger.SetGlobal(logg)
 
 	dbCtx, dbCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer dbCancel()

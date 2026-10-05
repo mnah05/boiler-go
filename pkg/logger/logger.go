@@ -14,8 +14,9 @@ import (
 )
 
 var (
-	global     zerolog.Logger
-	globalOnce sync.Once
+	global    zerolog.Logger
+	globalSet bool
+	globalMu  sync.RWMutex
 )
 
 func NewLogger(cfg *config.Config, defaultFile string) (zerolog.Logger, func() error, error) {
@@ -109,9 +110,30 @@ func NewWithFile(filePath string, console bool, level string) (zerolog.Logger, f
 	return logger, cleanup, nil
 }
 
+// Global returns the process-wide fallback logger.
 func Global() zerolog.Logger {
-	globalOnce.Do(func() {
+	globalMu.RLock()
+	if globalSet {
+		defer globalMu.RUnlock()
+		return global
+	}
+	globalMu.RUnlock()
+
+	globalMu.Lock()
+	defer globalMu.Unlock()
+	if !globalSet {
 		global = New().Level(zerolog.InfoLevel)
-	})
+		globalSet = true
+	}
 	return global
+}
+
+// SetGlobal installs log as the process-wide fallback. Call it once at startup
+// so logs emitted without a request context (background jobs, repositories)
+// land in the same sink as request logs instead of a separate stdout logger.
+func SetGlobal(log zerolog.Logger) {
+	globalMu.Lock()
+	defer globalMu.Unlock()
+	global = log
+	globalSet = true
 }

@@ -27,6 +27,9 @@ make api
 ## Architecture
 
 - `cmd/api`: Echo HTTP server.
+- `internal/handler`: routes, handlers, and the central error handler.
+- `internal/middleware`: request logging, JWT auth, RBAC, security headers,
+  and body-size limits.
 - `internal/repository`: sqlc-generated `database/sql` queries used through
   `sqlx`, with `pgx/v5/stdlib` as the registered `pgx` driver.
 - `internal/cache`: best-effort Redis cache interface and reconnect monitor.
@@ -34,6 +37,14 @@ make api
   implementation enabled by `RESEND_API_KEY` and `RESEND_FROM`.
 
 Run `make sqlc` after editing SQL and `make test` before committing.
+
+## Debugging with logs
+
+Every request is logged as structured JSON with a `request_id` that is also
+returned in the `X-Request-ID` response header and in error bodies. Failures
+are logged with their real HTTP status and their cause, and recovered panics
+include a stack trace. See [LOGGING.md](LOGGING.md) for the field reference and a
+step-by-step way to trace a reported failure.
 
 ## API docs (OpenAPI)
 
