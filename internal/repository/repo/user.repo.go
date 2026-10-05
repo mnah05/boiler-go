@@ -26,10 +26,6 @@ func NewUserRepo(pool *sqlx.DB, log zerolog.Logger) *UserRepo {
 	}
 }
 
-func (r *UserRepo) WithTx(tx *sql.Tx) *UserRepo {
-	return &UserRepo{BaseRepo: r.BaseRepo.WithTx(tx)}
-}
-
 func (r *UserRepo) UpsertByClerkID(ctx context.Context, params db.UpsertUserByClerkIDParams) (db.User, error) {
 	start := time.Now()
 	user, err := r.queries.UpsertUserByClerkID(ctx, params)

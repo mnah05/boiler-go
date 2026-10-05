@@ -45,10 +45,9 @@ type Config struct {
 
 	CORSAllowedOrigins []string `env:"CORS_ALLOWED_ORIGINS" envSeparator:"," envDefault:"http://localhost:3000"`
 
-	ClerkSecretKey      string        `env:"CLERK_SECRET_KEY,required"`
-	ClerkWebhookSecret  string        `env:"CLERK_WEBHOOK_SECRET,required"`
-	RequestTimeout      time.Duration `env:"REQUEST_TIMEOUT" envDefault:"30s"`
-	SecurityHSTSEnabled bool          `env:"SECURITY_HSTS_ENABLED" envDefault:"false"`
+	ClerkSecretKey      string `env:"CLERK_SECRET_KEY,required"`
+	ClerkWebhookSecret  string `env:"CLERK_WEBHOOK_SECRET,required"`
+	SecurityHSTSEnabled bool   `env:"SECURITY_HSTS_ENABLED" envDefault:"false"`
 }
 
 func Load() (*Config, error) {
@@ -132,9 +131,6 @@ func (c *Config) validate() error {
 	}
 	if len(c.ClerkWebhookSecret) == 0 {
 		return fmt.Errorf("CLERK_WEBHOOK_SECRET must not be empty")
-	}
-	if c.RequestTimeout <= 0 {
-		return fmt.Errorf("REQUEST_TIMEOUT must be positive")
 	}
 	return nil
 }

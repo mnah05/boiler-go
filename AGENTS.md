@@ -41,10 +41,11 @@ Single package: `go test -race ./internal/handler/`. Full gate: `make check`
   `.env` itself, so `.env` must exist with `DATABASE_URL`.
 - Redis is optional cache with background reconnect; the API serves degraded
   without it. `RESEND_API_KEY`/`RESEND_FROM` must be set together or both blank.
+  `internal/cache` and `internal/mailer` are intentionally wired but not yet
+  called by any route — keep them as extension points.
 - Errors: `handler.HTTPErrorHandler` is the single render/log point; envelope is
-  `{"error","message","request_id"}` matching `X-Request-ID`. In handlers log
-  with `logger.FromContext`; in `net/http`-style middleware use
-  `logger.FromChiContext`. Details: `ERROR_HANDLING.md`, `LOGGING.md`.
+  `{"error","message","request_id"}` matching `X-Request-ID`. Log with
+  `logger.FromContext`. Details: `ERROR_HANDLING.md`, `LOGGING.md`.
 - OpenAPI: annotations on handlers are the source of truth; `docs/` is
   committed. Pre-commit hook regens + stages `docs/` (skipped if `swag` CLI
   missing); PR CI fails on stale docs via `make swagger-check`; pushes to main

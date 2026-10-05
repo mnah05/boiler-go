@@ -23,6 +23,10 @@ Handlers therefore do not need to log before returning an error. Internal
 details stay in the logs: the response body only ever carries the error code
 and a client-safe message.
 
+Authentication follows the same path: `middleware.ClerkAuth` rejects with a 401
+rendered as `{"error":"unauthorized","message":...}`, and a 403 renders as
+`{"error":"forbidden",...}`. Both carry `request_id`.
+
 ## Other behaviour
 
 Database unavailability produces a 503 health response. Redis is an optional

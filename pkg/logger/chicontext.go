@@ -29,13 +29,7 @@ func FromContextOK(ctx context.Context) (zerolog.Logger, bool) {
 	return log, ok
 }
 
+// WithContext returns a copy of ctx carrying log.
 func WithContext(ctx context.Context, log zerolog.Logger) context.Context {
 	return context.WithValue(ctx, loggerKey, log)
-}
-
-// FromChiContext and WithChiContext are retained temporarily for callers using
-// a net/http handler outside Echo.
-func FromChiContext(ctx context.Context) zerolog.Logger { return FromContext(ctx) }
-func WithChiContext(ctx context.Context, log zerolog.Logger) context.Context {
-	return WithContext(ctx, log)
 }

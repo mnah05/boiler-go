@@ -2,7 +2,6 @@ package repo
 
 import (
 	"context"
-	"database/sql"
 	"time"
 
 	"boiler-go/internal/repository/db"
@@ -14,27 +13,13 @@ import (
 
 type BaseRepo struct {
 	queries *db.Queries
-	pool    *sqlx.DB
 	log     zerolog.Logger
 }
 
 func NewBaseRepo(pool *sqlx.DB, log zerolog.Logger) *BaseRepo {
 	return &BaseRepo{
 		queries: db.New(pool),
-		pool:    pool,
 		log:     log,
-	}
-}
-
-func (r *BaseRepo) Queries() *db.Queries {
-	return r.queries
-}
-
-func (r *BaseRepo) WithTx(tx *sql.Tx) *BaseRepo {
-	return &BaseRepo{
-		queries: db.New(tx),
-		pool:    r.pool,
-		log:     r.log,
 	}
 }
 
