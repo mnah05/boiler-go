@@ -72,10 +72,30 @@ func errorResponse(err error, requestID string) (int, ErrorResponse) {
 		if httpErr.Code >= http.StatusInternalServerError {
 			return httpErr.Code, ErrorResponse{Error: "internal_error", Message: "internal server error", RequestID: requestID}
 		}
+
+		// 401/403 are raised by authenticating middleware, which supplies a
+		// client-safe message. Every other Echo error keeps generic text so
+		// internals never leak.
+		switch httpErr.Code {
+		case http.StatusUnauthorized:
+			return httpErr.Code, ErrorResponse{Error: "unauthorized", Message: echoMessage(httpErr, "unauthorized"), RequestID: requestID}
+		case http.StatusForbidden:
+			return httpErr.Code, ErrorResponse{Error: "forbidden", Message: echoMessage(httpErr, "forbidden"), RequestID: requestID}
+		}
+
 		return httpErr.Code, ErrorResponse{Error: "http_error", Message: "request failed", RequestID: requestID}
 	}
 
 	return http.StatusInternalServerError, ErrorResponse{Error: "internal_error", Message: "internal server error", RequestID: requestID}
+}
+
+// echoMessage returns an Echo error's message when it is a non-empty string,
+// falling back otherwise.
+func echoMessage(err *echo.HTTPError, fallback string) string {
+	if message, ok := err.Message.(string); ok && message != "" {
+		return message
+	}
+	return fallback
 }
 
 func logError(c echo.Context, err error, status int) {

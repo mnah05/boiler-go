@@ -24,7 +24,10 @@ Single package: `go test -race ./internal/handler/`. Full gate: `make check`
 - One binary: `cmd/api`, an Echo HTTP server wired in `internal/handler/router.go`.
 - Auth is Clerk (`clerk-sdk-go/v2`): `middleware.ClerkAuth()` protects routes,
   user ID comes from `ClerkUserIDFromContext` (session claims Subject).
-  `ClerkAuth` is `net/http` style — attach with `echo.WrapMiddleware`.
+  `ClerkAuth` is an `echo.MiddlewareFunc` — attach directly (`group.Use`), not
+  via `echo.WrapMiddleware`. It rejects with a 401 through
+  `handler.HTTPErrorHandler`, so auth failures get the shared envelope and a
+  `request_id` like every other error.
   `POST /webhooks/clerk` is public and Svix-verified: read the raw body first,
   verify signature, then parse. Never `c.Bind` before verifying.
 - Users sync from Clerk webhooks (`user.created/updated/deleted`) into

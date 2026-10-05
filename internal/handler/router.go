@@ -30,7 +30,7 @@ func NewRouter(log zerolog.Logger, cfg *config.Config, db *sqlx.DB, cache cache.
 	webhooks := NewWebhookHandler(db, cfg.ClerkWebhookSecret, log)
 	e.POST("/webhooks/clerk", webhooks.HandleClerk)
 	api := e.Group("", middleware.RateLimiter(middleware.NewRateLimiterMemoryStoreWithConfig(middleware.RateLimiterMemoryStoreConfig{Rate: 10, Burst: 10, ExpiresIn: time.Second})))
-	protected := api.Group("", echo.WrapMiddleware(custommiddleware.ClerkAuth()))
+	protected := api.Group("", custommiddleware.ClerkAuth())
 	repoTest := NewRepoTestHandler(db, log)
 	protected.GET("/me", repoTest.GetMe)
 	protected.GET("/repo-test/users", repoTest.ListUsers)
