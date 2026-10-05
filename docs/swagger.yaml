@@ -1,30 +1,5 @@
 basePath: /
 definitions:
-  handler.CreateUserRequest:
-    properties:
-      email:
-        example: jane@example.com
-        type: string
-      name:
-        example: Jane Doe
-        maxLength: 255
-        minLength: 1
-        type: string
-    required:
-    - email
-    - name
-    type: object
-  handler.CreateUserSuccessResponse:
-    properties:
-      data:
-        $ref: '#/definitions/handler.UserResponse'
-      message:
-        example: user created
-        type: string
-      success:
-        example: true
-        type: boolean
-    type: object
   handler.ErrorResponse:
     properties:
       details: {}
@@ -57,8 +32,21 @@ definitions:
         example: up
         type: string
     type: object
+  handler.SuccessResponse:
+    properties:
+      data: {}
+      message:
+        example: user created
+        type: string
+      success:
+        example: true
+        type: boolean
+    type: object
   handler.UserResponse:
     properties:
+      clerk_id:
+        example: user_2abcXYZ
+        type: string
       created_at:
         example: "2026-10-05T12:00:00Z"
         type: string
@@ -100,9 +88,33 @@ paths:
       summary: Health check
       tags:
       - health
+  /me:
+    get:
+      description: Returns the local user linked to the Clerk session. Requires a
+        Clerk session token.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.UserResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Current user
+      tags:
+      - users
   /repo-test/users:
     get:
-      description: List users newest-first. Requires a Bearer token.
+      description: List users newest-first. Requires a Clerk session token.
       parameters:
       - default: 10
         description: Max rows
@@ -136,48 +148,9 @@ paths:
       summary: List users
       tags:
       - users
-    post:
-      consumes:
-      - application/json
-      description: Create a user by email and name. Requires a Bearer token.
-      parameters:
-      - description: User payload
-        in: body
-        name: body
-        required: true
-        schema:
-          $ref: '#/definitions/handler.CreateUserRequest'
-      produces:
-      - application/json
-      responses:
-        "201":
-          description: Created
-          schema:
-            $ref: '#/definitions/handler.CreateUserSuccessResponse'
-        "400":
-          description: Bad Request
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
-        "401":
-          description: Unauthorized
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
-        "409":
-          description: Conflict
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
-        "500":
-          description: Internal Server Error
-          schema:
-            $ref: '#/definitions/handler.ErrorResponse'
-      security:
-      - BearerAuth: []
-      summary: Create user
-      tags:
-      - users
   /repo-test/users/get:
     get:
-      description: Get a single user by id query param. Requires a Bearer token.
+      description: Get a single user by id query param. Requires a Clerk session token.
       parameters:
       - description: User UUID
         in: query
@@ -212,13 +185,54 @@ paths:
       summary: Get user
       tags:
       - users
+  /webhooks/clerk:
+    post:
+      consumes:
+      - application/json
+      description: Receives Clerk user lifecycle events (Svix-signed) and syncs local
+        users.
+      parameters:
+      - description: Svix message ID
+        in: header
+        name: svix-id
+        required: true
+        type: string
+      - description: Svix timestamp
+        in: header
+        name: svix-timestamp
+        required: true
+        type: string
+      - description: Svix signature
+        in: header
+        name: svix-signature
+        required: true
+        type: string
+      - description: Clerk event payload
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/handler.SuccessResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/handler.ErrorResponse'
+      summary: Clerk webhook
+      tags:
+      - webhooks
 schemes:
 - http
 - https
 securityDefinitions:
   BearerAuth:
-    description: Type "Bearer" followed by a space and your token. Clerk migration
-      will reuse this scheme.
+    description: Type "Bearer" followed by a space and your Clerk session token.
     in: header
     name: Authorization
     type: apiKey

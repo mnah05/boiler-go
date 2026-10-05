@@ -39,6 +39,43 @@
                 }
             }
         },
+        "/me": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns the local user linked to the Clerk session. Requires a Clerk session token.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Current user",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handler.UserResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/repo-test/users": {
             "get": {
                 "security": [
@@ -46,7 +83,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "List users newest-first. Requires a Bearer token.",
+                "description": "List users newest-first. Requires a Clerk session token.",
                 "produces": [
                     "application/json"
                 ],
@@ -93,67 +130,6 @@
                         }
                     }
                 }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "Create a user by email and name. Requires a Bearer token.",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "users"
-                ],
-                "summary": "Create user",
-                "parameters": [
-                    {
-                        "description": "User payload",
-                        "name": "body",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/handler.CreateUserRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Created",
-                        "schema": {
-                            "$ref": "#/definitions/handler.CreateUserSuccessResponse"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "$ref": "#/definitions/handler.ErrorResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized",
-                        "schema": {
-                            "$ref": "#/definitions/handler.ErrorResponse"
-                        }
-                    },
-                    "409": {
-                        "description": "Conflict",
-                        "schema": {
-                            "$ref": "#/definitions/handler.ErrorResponse"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "$ref": "#/definitions/handler.ErrorResponse"
-                        }
-                    }
-                }
             }
         },
         "/repo-test/users/get": {
@@ -163,7 +139,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "Get a single user by id query param. Requires a Bearer token.",
+                "description": "Get a single user by id query param. Requires a Clerk session token.",
                 "produces": [
                     "application/json"
                 ],
@@ -213,44 +189,70 @@
                     }
                 }
             }
+        },
+        "/webhooks/clerk": {
+            "post": {
+                "description": "Receives Clerk user lifecycle events (Svix-signed) and syncs local users.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "webhooks"
+                ],
+                "summary": "Clerk webhook",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Svix message ID",
+                        "name": "svix-id",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Svix timestamp",
+                        "name": "svix-timestamp",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Svix signature",
+                        "name": "svix-signature",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "Clerk event payload",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/handler.SuccessResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/handler.ErrorResponse"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
-        "handler.CreateUserRequest": {
-            "type": "object",
-            "required": [
-                "email",
-                "name"
-            ],
-            "properties": {
-                "email": {
-                    "type": "string",
-                    "example": "jane@example.com"
-                },
-                "name": {
-                    "type": "string",
-                    "maxLength": 255,
-                    "minLength": 1,
-                    "example": "Jane Doe"
-                }
-            }
-        },
-        "handler.CreateUserSuccessResponse": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "$ref": "#/definitions/handler.UserResponse"
-                },
-                "message": {
-                    "type": "string",
-                    "example": "user created"
-                },
-                "success": {
-                    "type": "boolean",
-                    "example": true
-                }
-            }
-        },
         "handler.ErrorResponse": {
             "type": "object",
             "properties": {
@@ -297,9 +299,27 @@
                 }
             }
         },
+        "handler.SuccessResponse": {
+            "type": "object",
+            "properties": {
+                "data": {},
+                "message": {
+                    "type": "string",
+                    "example": "user created"
+                },
+                "success": {
+                    "type": "boolean",
+                    "example": true
+                }
+            }
+        },
         "handler.UserResponse": {
             "type": "object",
             "properties": {
+                "clerk_id": {
+                    "type": "string",
+                    "example": "user_2abcXYZ"
+                },
                 "created_at": {
                     "type": "string",
                     "example": "2026-10-05T12:00:00Z"
@@ -325,7 +345,7 @@
     },
     "securityDefinitions": {
         "BearerAuth": {
-            "description": "Type \"Bearer\" followed by a space and your token. Clerk migration will reuse this scheme.",
+            "description": "Type \"Bearer\" followed by a space and your Clerk session token.",
             "type": "apiKey",
             "name": "Authorization",
             "in": "header"

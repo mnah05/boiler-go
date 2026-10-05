@@ -9,6 +9,7 @@ import (
 	"boiler-go/internal/config"
 	custommiddleware "boiler-go/internal/middleware"
 
+	"github.com/clerk/clerk-sdk-go/v2"
 	"github.com/jmoiron/sqlx"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -17,6 +18,8 @@ import (
 )
 
 func NewRouter(log zerolog.Logger, cfg *config.Config, db *sqlx.DB, cache cache.Store) *echo.Echo {
+	clerk.SetKey(cfg.ClerkSecretKey)
+
 	e := echo.New()
 	e.HideBanner = true
 	e.HTTPErrorHandler = HTTPErrorHandler
@@ -24,10 +27,12 @@ func NewRouter(log zerolog.Logger, cfg *config.Config, db *sqlx.DB, cache cache.
 	health := NewHealthHandler(db, cache, cfg.HealthCheckTimeout)
 	e.GET("/health", health.Check)
 	e.GET("/swagger/*", echoSwagger.WrapHandler)
+	webhooks := NewWebhookHandler(db, cfg.ClerkWebhookSecret, log)
+	e.POST("/webhooks/clerk", webhooks.HandleClerk)
 	api := e.Group("", middleware.RateLimiter(middleware.NewRateLimiterMemoryStoreWithConfig(middleware.RateLimiterMemoryStoreConfig{Rate: 10, Burst: 10, ExpiresIn: time.Second})))
-	protected := api.Group("", echo.WrapMiddleware(custommiddleware.JWTAuth(custommiddleware.JWTConfig{Secret: []byte(cfg.JWTSecret)})))
+	protected := api.Group("", echo.WrapMiddleware(custommiddleware.ClerkAuth()))
 	repoTest := NewRepoTestHandler(db, log)
-	protected.POST("/repo-test/users", repoTest.CreateUser)
+	protected.GET("/me", repoTest.GetMe)
 	protected.GET("/repo-test/users", repoTest.ListUsers)
 	protected.GET("/repo-test/users/get", repoTest.GetUser)
 	return e

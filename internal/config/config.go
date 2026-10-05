@@ -45,7 +45,8 @@ type Config struct {
 
 	CORSAllowedOrigins []string `env:"CORS_ALLOWED_ORIGINS" envSeparator:"," envDefault:"http://localhost:3000"`
 
-	JWTSecret           string        `env:"JWT_SECRET,required"`
+	ClerkSecretKey      string        `env:"CLERK_SECRET_KEY,required"`
+	ClerkWebhookSecret  string        `env:"CLERK_WEBHOOK_SECRET,required"`
 	RequestTimeout      time.Duration `env:"REQUEST_TIMEOUT" envDefault:"30s"`
 	SecurityHSTSEnabled bool          `env:"SECURITY_HSTS_ENABLED" envDefault:"false"`
 }
@@ -126,8 +127,11 @@ func (c *Config) validate() error {
 	if (c.LogOutput == "file" || c.LogOutput == "both") && c.LogFile == "" {
 		return fmt.Errorf("LOG_FILE is required when LOG_OUTPUT is file or both")
 	}
-	if len(c.JWTSecret) < 32 {
-		return fmt.Errorf("JWT_SECRET must be at least 32 characters")
+	if len(c.ClerkSecretKey) == 0 {
+		return fmt.Errorf("CLERK_SECRET_KEY must not be empty")
+	}
+	if len(c.ClerkWebhookSecret) == 0 {
+		return fmt.Errorf("CLERK_WEBHOOK_SECRET must not be empty")
 	}
 	if c.RequestTimeout <= 0 {
 		return fmt.Errorf("REQUEST_TIMEOUT must be positive")

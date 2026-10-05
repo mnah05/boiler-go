@@ -10,7 +10,7 @@
 // @securityDefinitions.apikey	BearerAuth
 // @in							header
 // @name						Authorization
-// @description				Type "Bearer" followed by a space and your token. Clerk migration will reuse this scheme.
+// @description				Type "Bearer" followed by a space and your Clerk session token.
 package main
 
 import (

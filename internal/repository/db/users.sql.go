@@ -7,26 +7,36 @@ package db
 
 import (
 	"context"
+	"database/sql"
 
 	"github.com/google/uuid"
 )
 
-const createUser = `-- name: CreateUser :one
-INSERT INTO users (email, name)
-VALUES ($1, $2)
-RETURNING id, email, name, created_at, updated_at
+const deleteUserByClerkID = `-- name: DeleteUserByClerkID :execrows
+DELETE FROM users
+WHERE clerk_id = $1
 `
 
-type CreateUserParams struct {
-	Email string `json:"email"`
-	Name  string `json:"name"`
+func (q *Queries) DeleteUserByClerkID(ctx context.Context, clerkID sql.NullString) (int64, error) {
+	result, err := q.exec(ctx, q.deleteUserByClerkIDStmt, deleteUserByClerkID, clerkID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
-func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, error) {
-	row := q.queryRow(ctx, q.createUserStmt, createUser, arg.Email, arg.Name)
+const getUserByClerkID = `-- name: GetUserByClerkID :one
+SELECT id, clerk_id, email, name, created_at, updated_at
+FROM users
+WHERE clerk_id = $1
+`
+
+func (q *Queries) GetUserByClerkID(ctx context.Context, clerkID sql.NullString) (User, error) {
+	row := q.queryRow(ctx, q.getUserByClerkIDStmt, getUserByClerkID, clerkID)
 	var i User
 	err := row.Scan(
 		&i.ID,
+		&i.ClerkID,
 		&i.Email,
 		&i.Name,
 		&i.CreatedAt,
@@ -36,7 +46,7 @@ func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) (User, e
 }
 
 const getUserByID = `-- name: GetUserByID :one
-SELECT id, email, name, created_at, updated_at
+SELECT id, clerk_id, email, name, created_at, updated_at
 FROM users
 WHERE id = $1
 `
@@ -46,6 +56,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 	var i User
 	err := row.Scan(
 		&i.ID,
+		&i.ClerkID,
 		&i.Email,
 		&i.Name,
 		&i.CreatedAt,
@@ -55,7 +66,7 @@ func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
 }
 
 const listUsers = `-- name: ListUsers :many
-SELECT id, email, name, created_at, updated_at
+SELECT id, clerk_id, email, name, created_at, updated_at
 FROM users
 ORDER BY created_at DESC
 LIMIT $1
@@ -72,6 +83,7 @@ func (q *Queries) ListUsers(ctx context.Context, limit int32) ([]User, error) {
 		var i User
 		if err := rows.Scan(
 			&i.ID,
+			&i.ClerkID,
 			&i.Email,
 			&i.Name,
 			&i.CreatedAt,
@@ -88,4 +100,34 @@ func (q *Queries) ListUsers(ctx context.Context, limit int32) ([]User, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const upsertUserByClerkID = `-- name: UpsertUserByClerkID :one
+INSERT INTO users (clerk_id, email, name)
+VALUES ($1, $2, $3)
+ON CONFLICT (clerk_id) DO UPDATE SET
+    email = EXCLUDED.email,
+    name = EXCLUDED.name,
+    updated_at = now()
+RETURNING id, clerk_id, email, name, created_at, updated_at
+`
+
+type UpsertUserByClerkIDParams struct {
+	ClerkID sql.NullString `json:"clerk_id"`
+	Email   string         `json:"email"`
+	Name    string         `json:"name"`
+}
+
+func (q *Queries) UpsertUserByClerkID(ctx context.Context, arg UpsertUserByClerkIDParams) (User, error) {
+	row := q.queryRow(ctx, q.upsertUserByClerkIDStmt, upsertUserByClerkID, arg.ClerkID, arg.Email, arg.Name)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.ClerkID,
+		&i.Email,
+		&i.Name,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
 }

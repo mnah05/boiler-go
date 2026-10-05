@@ -28,7 +28,7 @@ make api
 
 - `cmd/api`: Echo HTTP server.
 - `internal/handler`: routes, handlers, and the central error handler.
-- `internal/middleware`: request logging, JWT auth, RBAC, security headers,
+- `internal/middleware`: request logging, Clerk auth, security headers,
   and body-size limits.
 - `internal/repository`: sqlc-generated `database/sql` queries used through
   `sqlx`, with `pgx/v5/stdlib` as the registered `pgx` driver.
@@ -59,7 +59,7 @@ make api              # UI at http://localhost:8080/swagger/index.html
 - Spec files: `docs/swagger.json`, `docs/swagger.yaml` (committed).
 - Raw spec also served at `/swagger/doc.json`.
 - Add a new endpoint: annotate the handler (`@Summary/@Tags/@Param/@Success/@Failure/@Router`), then rerun `make swagger`.
-- Auth uses `BearerAuth` (`Authorization: Bearer <token>`), so the planned Clerk switch reuses the same scheme.
+- Auth uses `BearerAuth` (`Authorization: Bearer <clerk-session-token>`), verified by the Clerk Go SDK. `POST /webhooks/clerk` (Svix-signed) syncs `user.created/updated/deleted` into `users.clerk_id`.
 
 ### Docs stay fresh automatically
 

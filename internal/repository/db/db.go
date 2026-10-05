@@ -24,8 +24,11 @@ func New(db DBTX) *Queries {
 func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	q := Queries{db: db}
 	var err error
-	if q.createUserStmt, err = db.PrepareContext(ctx, createUser); err != nil {
-		return nil, fmt.Errorf("error preparing query CreateUser: %w", err)
+	if q.deleteUserByClerkIDStmt, err = db.PrepareContext(ctx, deleteUserByClerkID); err != nil {
+		return nil, fmt.Errorf("error preparing query DeleteUserByClerkID: %w", err)
+	}
+	if q.getUserByClerkIDStmt, err = db.PrepareContext(ctx, getUserByClerkID); err != nil {
+		return nil, fmt.Errorf("error preparing query GetUserByClerkID: %w", err)
 	}
 	if q.getUserByIDStmt, err = db.PrepareContext(ctx, getUserByID); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUserByID: %w", err)
@@ -33,14 +36,22 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.listUsersStmt, err = db.PrepareContext(ctx, listUsers); err != nil {
 		return nil, fmt.Errorf("error preparing query ListUsers: %w", err)
 	}
+	if q.upsertUserByClerkIDStmt, err = db.PrepareContext(ctx, upsertUserByClerkID); err != nil {
+		return nil, fmt.Errorf("error preparing query UpsertUserByClerkID: %w", err)
+	}
 	return &q, nil
 }
 
 func (q *Queries) Close() error {
 	var err error
-	if q.createUserStmt != nil {
-		if cerr := q.createUserStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing createUserStmt: %w", cerr)
+	if q.deleteUserByClerkIDStmt != nil {
+		if cerr := q.deleteUserByClerkIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing deleteUserByClerkIDStmt: %w", cerr)
+		}
+	}
+	if q.getUserByClerkIDStmt != nil {
+		if cerr := q.getUserByClerkIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getUserByClerkIDStmt: %w", cerr)
 		}
 	}
 	if q.getUserByIDStmt != nil {
@@ -51,6 +62,11 @@ func (q *Queries) Close() error {
 	if q.listUsersStmt != nil {
 		if cerr := q.listUsersStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing listUsersStmt: %w", cerr)
+		}
+	}
+	if q.upsertUserByClerkIDStmt != nil {
+		if cerr := q.upsertUserByClerkIDStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing upsertUserByClerkIDStmt: %w", cerr)
 		}
 	}
 	return err
@@ -90,19 +106,23 @@ func (q *Queries) queryRow(ctx context.Context, stmt *sql.Stmt, query string, ar
 }
 
 type Queries struct {
-	db              DBTX
-	tx              *sql.Tx
-	createUserStmt  *sql.Stmt
-	getUserByIDStmt *sql.Stmt
-	listUsersStmt   *sql.Stmt
+	db                      DBTX
+	tx                      *sql.Tx
+	deleteUserByClerkIDStmt *sql.Stmt
+	getUserByClerkIDStmt    *sql.Stmt
+	getUserByIDStmt         *sql.Stmt
+	listUsersStmt           *sql.Stmt
+	upsertUserByClerkIDStmt *sql.Stmt
 }
 
 func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 	return &Queries{
-		db:              tx,
-		tx:              tx,
-		createUserStmt:  q.createUserStmt,
-		getUserByIDStmt: q.getUserByIDStmt,
-		listUsersStmt:   q.listUsersStmt,
+		db:                      tx,
+		tx:                      tx,
+		deleteUserByClerkIDStmt: q.deleteUserByClerkIDStmt,
+		getUserByClerkIDStmt:    q.getUserByClerkIDStmt,
+		getUserByIDStmt:         q.getUserByIDStmt,
+		listUsersStmt:           q.listUsersStmt,
+		upsertUserByClerkIDStmt: q.upsertUserByClerkIDStmt,
 	}
 }
