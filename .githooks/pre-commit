@@ -20,6 +20,17 @@ fi
 echo "→ go vet ./..."
 go vet ./...
 
+# Regenerate OpenAPI docs if annotations changed and stage the result.
+# Skipped (with a warning) when the swag CLI is not installed;
+# CI enforces freshness via `make swagger-check`.
+if command -v swag >/dev/null 2>&1; then
+    echo "→ make swagger"
+    make swagger
+    git add docs/
+else
+    echo "⚠  swag not found, skipping OpenAPI regen (run: make swagger-install)"
+fi
+
 # Lint (if golangci-lint is installed)
 if command -v golangci-lint >/dev/null 2>&1; then
     echo "→ golangci-lint run"

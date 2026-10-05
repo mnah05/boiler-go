@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	_ "boiler-go/docs"
 	"boiler-go/internal/cache"
 	"boiler-go/internal/config"
 	custommiddleware "boiler-go/internal/middleware"
@@ -12,6 +13,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/rs/zerolog"
+	echoSwagger "github.com/swaggo/echo-swagger"
 )
 
 func NewRouter(log zerolog.Logger, cfg *config.Config, db *sqlx.DB, cache cache.Store) *echo.Echo {
@@ -21,6 +23,7 @@ func NewRouter(log zerolog.Logger, cfg *config.Config, db *sqlx.DB, cache cache.
 	e.Use(middleware.RequestID(), middleware.Recover(), echo.WrapMiddleware(custommiddleware.SecurityHeaders(custommiddleware.SecurityConfig{HSTSEnabled: cfg.SecurityHSTSEnabled})), middleware.CORSWithConfig(middleware.CORSConfig{AllowOrigins: cfg.CORSAllowedOrigins, AllowMethods: []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodOptions}, AllowHeaders: []string{echo.HeaderAccept, echo.HeaderAuthorization, echo.HeaderContentType, echo.HeaderXRequestID}, ExposeHeaders: []string{"Link", echo.HeaderXRequestID}, MaxAge: 300}), custommiddleware.RequestLogger(log), echo.WrapMiddleware(custommiddleware.MaxBodySize(1<<20)))
 	health := NewHealthHandler(db, cache, cfg.HealthCheckTimeout)
 	e.GET("/health", health.Check)
+	e.GET("/swagger/*", echoSwagger.WrapHandler)
 	api := e.Group("", middleware.RateLimiter(middleware.NewRateLimiterMemoryStoreWithConfig(middleware.RateLimiterMemoryStoreConfig{Rate: 10, Burst: 10, ExpiresIn: time.Second})))
 	protected := api.Group("", echo.WrapMiddleware(custommiddleware.JWTAuth(custommiddleware.JWTConfig{Secret: []byte(cfg.JWTSecret)})))
 	repoTest := NewRepoTestHandler(db, log)

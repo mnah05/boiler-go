@@ -34,3 +34,28 @@ make api
   implementation enabled by `RESEND_API_KEY` and `RESEND_FROM`.
 
 Run `make sqlc` after editing SQL and `make test` before committing.
+
+## API docs (OpenAPI)
+
+Annotated with [swaggo](https://github.com/swaggo/swag) — code is the source of truth.
+
+```bash
+make swagger-install  # one-time: installs swag CLI
+make swagger          # regenerates docs/ from annotations
+make api              # UI at http://localhost:8080/swagger/index.html
+```
+
+- Spec files: `docs/swagger.json`, `docs/swagger.yaml` (committed).
+- Raw spec also served at `/swagger/doc.json`.
+- Add a new endpoint: annotate the handler (`@Summary/@Tags/@Param/@Success/@Failure/@Router`), then rerun `make swagger`.
+- Auth uses `BearerAuth` (`Authorization: Bearer <token>`), so the planned Clerk switch reuses the same scheme.
+
+### Docs stay fresh automatically
+
+- Local: the pre-commit hook (`.githooks/pre-commit`, via `make hooks`) reruns
+  `make swagger` and stages `docs/`. Needs the CLI once: `make swagger-install`.
+- Pull requests: `.github/workflows/openapi.yml` fails if `docs/` is stale —
+  run `make swagger` and push.
+- Pushes to `main`: the same workflow regenerates `docs/` and commits the
+  update back, so merged annotations are always reflected.
+- `make swagger-check` is the CI gate (regen + `git diff --exit-code -- docs/`).

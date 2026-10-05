@@ -31,17 +31,38 @@ func NewRepoTestHandler(pool *sqlx.DB, log zerolog.Logger) *RepoTestHandler {
 }
 
 type CreateUserRequest struct {
-	Email string `json:"email" validate:"required,email"`
-	Name  string `json:"name" validate:"required,min=1,max=255"`
+	Email string `json:"email" validate:"required,email" example:"jane@example.com"`
+	Name  string `json:"name" validate:"required,min=1,max=255" example:"Jane Doe"`
 }
 type UserResponse struct {
-	ID        string `json:"id"`
-	Email     string `json:"email"`
-	Name      string `json:"name"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	ID        string `json:"id" example:"550e8400-e29b-41d4-a716-446655440000"`
+	Email     string `json:"email" example:"jane@example.com"`
+	Name      string `json:"name" example:"Jane Doe"`
+	CreatedAt string `json:"created_at" example:"2026-10-05T12:00:00Z"`
+	UpdatedAt string `json:"updated_at" example:"2026-10-05T12:00:00Z"`
 }
 
+// CreateUserSuccessResponse documents the POST /repo-test/users success envelope.
+type CreateUserSuccessResponse struct {
+	Success bool         `json:"success" example:"true"`
+	Data    UserResponse `json:"data"`
+	Message string       `json:"message" example:"user created"`
+}
+
+// CreateUser godoc
+// @Summary		Create user
+// @Description	Create a user by email and name. Requires a Bearer token.
+// @Tags			users
+// @Accept			json
+// @Produce		json
+// @Security		BearerAuth
+// @Param			body	body		handler.CreateUserRequest	true	"User payload"
+// @Success		201		{object}	handler.CreateUserSuccessResponse
+// @Failure		400		{object}	handler.ErrorResponse
+// @Failure		401		{object}	handler.ErrorResponse
+// @Failure		409		{object}	handler.ErrorResponse
+// @Failure		500		{object}	handler.ErrorResponse
+// @Router			/repo-test/users [post]
 func (h *RepoTestHandler) CreateUser(c echo.Context) error {
 	log := logger.FromContext(c.Request().Context())
 	var req CreateUserRequest
@@ -64,6 +85,20 @@ func (h *RepoTestHandler) CreateUser(c echo.Context) error {
 	}
 	return c.JSON(http.StatusCreated, SuccessResponse{Success: true, Data: userResponse(user), Message: "user created"})
 }
+
+// GetUser godoc
+// @Summary		Get user
+// @Description	Get a single user by id query param. Requires a Bearer token.
+// @Tags			users
+// @Produce		json
+// @Security		BearerAuth
+// @Param			id	query		string	true	"User UUID"
+// @Success		200	{object}	handler.UserResponse
+// @Failure		400	{object}	handler.ErrorResponse
+// @Failure		401	{object}	handler.ErrorResponse
+// @Failure		404	{object}	handler.ErrorResponse
+// @Failure		500	{object}	handler.ErrorResponse
+// @Router			/repo-test/users/get [get]
 func (h *RepoTestHandler) GetUser(c echo.Context) error {
 	id, err := uuid.Parse(c.QueryParam("id"))
 	if err != nil {
@@ -80,6 +115,19 @@ func (h *RepoTestHandler) GetUser(c echo.Context) error {
 	}
 	return c.JSON(http.StatusOK, userResponse(user))
 }
+
+// ListUsers godoc
+// @Summary		List users
+// @Description	List users newest-first. Requires a Bearer token.
+// @Tags			users
+// @Produce		json
+// @Security		BearerAuth
+// @Param			limit	query		int	false	"Max rows"	minimum(1)	default(10)
+// @Success		200		{array}		handler.UserResponse
+// @Failure		400		{object}	handler.ErrorResponse
+// @Failure		401		{object}	handler.ErrorResponse
+// @Failure		500		{object}	handler.ErrorResponse
+// @Router			/repo-test/users [get]
 func (h *RepoTestHandler) ListUsers(c echo.Context) error {
 	limit := int32(10)
 	if raw := c.QueryParam("limit"); raw != "" {

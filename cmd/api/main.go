@@ -1,3 +1,16 @@
+// Package main is the entrypoint for the boiler-go API.
+//
+// @title			Boiler-Go API
+// @version			1.0
+// @description		Dockerized Go API starter using Echo, PostgreSQL, sqlc and Redis.
+// @host			localhost:8080
+// @BasePath		/
+// @schemes			http https
+//
+// @securityDefinitions.apikey	BearerAuth
+// @in							header
+// @name						Authorization
+// @description				Type "Bearer" followed by a space and your token. Clerk migration will reuse this scheme.
 package main
 
 import (

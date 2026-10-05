@@ -3,14 +3,14 @@ package handler
 import "github.com/labstack/echo/v4"
 
 type ErrorResponse struct {
-	Error   string `json:"error"`
-	Message string `json:"message,omitempty"`
+	Error   string `json:"error" example:"bad_request"`
+	Message string `json:"message,omitempty" example:"invalid request body"`
 	Details any    `json:"details,omitempty"`
 }
 type SuccessResponse struct {
-	Success bool   `json:"success"`
+	Success bool   `json:"success" example:"true"`
 	Data    any    `json:"data,omitempty"`
-	Message string `json:"message,omitempty"`
+	Message string `json:"message,omitempty" example:"user created"`
 }
 type APIError struct {
 	Status int

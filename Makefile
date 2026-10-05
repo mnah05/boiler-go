@@ -58,6 +58,21 @@ migrate-version:
 sqlc:
 	sqlc generate
 
+# ---------- swagger / openapi ----------
+SWAG_VERSION ?= v1.16.4
+
+swagger-install:
+	go install github.com/swaggo/swag/cmd/swag@$(SWAG_VERSION)
+
+swagger:
+	swag init -g cmd/api/main.go -o docs
+	@echo "OpenAPI generated in docs/. UI at /swagger/index.html"
+
+# CI-friendly: regenerates docs and fails if committed docs are stale.
+swagger-check:
+	swag init -g cmd/api/main.go -o docs
+	git diff --exit-code -- docs/ || (echo "docs/ is stale. Run 'make swagger' and commit the result."; exit 1)
+
 # ---------- dev ----------
 dev:
 	docker compose up -d
@@ -85,4 +100,4 @@ clean: stop dev-down
 	@rm -rf bin/
 	@echo "Cleaned up"
 
-.PHONY: api stop-api stop-migrate stop fmt vet lint check test hooks migrate-up migrate-down migrate-create migrate-force migrate-version sqlc dev dev-down dev-stop build-api build clean
+.PHONY: api stop-api stop-migrate stop fmt vet lint check test hooks migrate-up migrate-down migrate-create migrate-force migrate-version sqlc swagger swagger-install swagger-check dev dev-down dev-stop build-api build clean
