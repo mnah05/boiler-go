@@ -1,0 +1,78 @@
+name: test
+
+# Runs the Go checks on every change to main so a regression cannot land
+# without a failing check. Mirrors the commands documented in AGENTS.md and
+# the pre-commit hook.
+#
+# No external services are needed: the current tests run without PostgreSQL
+# or Redis. If integration tests are added later, attach them here as service
+# containers rather than skipping the suite in CI.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A newer push to the same ref makes an in-flight run obsolete.
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check go.mod and go.sum are tidy
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l cmd internal pkg)
+          if [ -n "$unformatted" ]; then
+            echo "::error::These files are not gofmt-formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        # Equivalent to `make test`, plus a coverage profile. The race
+        # detector requires covermode=atomic.
+        run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Report coverage
+        run: |
+          go tool cover -func=coverage.out | tail -1
+          {
+            echo "### Test coverage"
+            echo
+            echo ```
+            go tool cover -func=coverage.out
+            echo ```
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage profile
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+          if-no-files-found: warn

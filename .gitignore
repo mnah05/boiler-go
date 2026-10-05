@@ -12,6 +12,9 @@
 # Test binary
 *.test
 
+# Test coverage
+coverage.out
+
 # Go workspace
 go.work
 go.work.sum
